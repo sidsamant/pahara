@@ -33,8 +33,15 @@ def camel_case_name(value: str) -> str:
     return "".join(part[:1].upper() + part[1:] for part in parts if part) or "Source"
 
 
+def short_source_name(value: str) -> str:
+    words = [word for word in value.split() if word]
+    filtered = [word for word in words if word.lower() not in {"news", "newsroom"}]
+    chosen = filtered if filtered else words
+    return " ".join(chosen) or value
+
+
 def build_source_folder_name(source_id: int, source_name: str) -> str:
-    return f"source_link{source_id}_{camel_case_name(source_name)}"
+    return f"{source_id}_{camel_case_name(short_source_name(source_name))}"
 
 
 def get_connection() -> sqlite3.Connection:
@@ -113,7 +120,7 @@ def ensure_source(name: str, link: str, scraper_key: str, enabled: bool = True) 
 
         if existing:
             source_id = int(existing["id"])
-            folder_name = build_source_folder_name(source_id, name)
+            folder_name = existing["folder_name"] or build_source_folder_name(source_id, name)
             connection.execute(
                 """
                 UPDATE sources
@@ -152,6 +159,12 @@ def seed_default_sources() -> None:
         name="Skyroot Newsroom",
         link="https://www.skyroot.in/newsroom",
         scraper_key="skyroot_newsroom",
+        enabled=True,
+    )
+    ensure_source(
+        name="NSIL News",
+        link="https://www.nsilindia.co.in/news",
+        scraper_key="nsil_news",
         enabled=True,
     )
 
