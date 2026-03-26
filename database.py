@@ -167,6 +167,12 @@ def seed_default_sources() -> None:
         scraper_key="nsil_news",
         enabled=True,
     )
+    ensure_source(
+        name="Pixxel Newsroom",
+        link="https://www.pixxel.space/newsroom",
+        scraper_key="pixxel_newsroom",
+        enabled=True,
+    )
 
 
 def get_enabled_sources() -> list[SourceRecord]:
