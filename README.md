@@ -18,6 +18,7 @@ This project uses `crawl4ai` plus SQLite to run all enabled newsroom sources, tr
 - Aggregate run results: `.\data\runs\<timestamp>.json`
 
 The seeded sources are `Digantara Newsroom`, `Skyroot Newsroom`, and `NSIL News`.
+Configured X accounts can also be synced into the `sources` table from `.\config\x_targets.json`.
 
 ## Setup
 
@@ -64,6 +65,80 @@ Disable a source:
 python .\manage_sources.py disable --id 1
 ```
 
+## X Latest Posts
+
+Add one or more X profile URLs to `.\config\x_targets.json`. Each account is synced as its own source using the `x_latest_posts` scraper key.
+
+Auth is supported through one of:
+
+- `storage_state_path`
+- `cookies_path`
+- `user_data_dir`
+
+Example account entry:
+
+```json
+{
+  "name": "X OpenAI",
+  "url": "https://x.com/OpenAI",
+  "enabled": true,
+  "max_posts": 5
+}
+```
+
+Validate the configured X auth before a full run:
+
+```powershell
+python .\manage_sources.py validate-x-auth --url https://x.com/OpenAI
+```
+
+Export an isolated X-only `storage_state` file:
+
+```powershell
+python .\scripts\export_x_storage_state.py
+```
+
+That helper opens a separate Chrome-backed browser profile just for manual X login, then saves a Playwright `storage_state` JSON that the scraper can reuse without pointing at your normal Chrome user folder.
+
+Regenerate isolated X user data on Windows:
+
+1. Launch Chrome with a dedicated profile folder that is used only for X:
+
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --user-data-dir="D:\ai\browser-profiles\x-only" --profile-directory="Default" "https://x.com"
+```
+
+If Chrome is installed under `Program Files (x86)`, use:
+
+```powershell
+& "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --user-data-dir="D:\ai\browser-profiles\x-only" --profile-directory="Default" "https://x.com"
+```
+
+2. Log into X manually in that browser window.
+3. Confirm you can open `https://x.com/home`.
+4. Close Chrome completely so the profile is not locked.
+5. Export a fresh `storage_state` from that isolated profile:
+
+```powershell
+python .\scripts\export_x_storage_state.py --profile-dir D:\ai\browser-profiles\x-only --output .\config\x_storage_state.json
+```
+
+6. Set `config/x_targets.json` to use that exported file:
+
+```json
+"auth": {
+  "storage_state_path": "config/x_storage_state.json",
+  "cookies_path": "",
+  "user_data_dir": ""
+}
+```
+
+7. Validate the auth before running the scraper:
+
+```powershell
+python .\manage_sources.py validate-x-auth --url https://x.com/OpenAI
+```
+
 ## Notes
 
 - The runner executes every enabled source from the `sources` table.
@@ -72,4 +147,5 @@ python .\manage_sources.py disable --id 1
 - The Digantara scraper enriches press release dates from detail pages because the listing exposes only slug/title for those items.
 - The Skyroot scraper currently reads only the first listing page, by design.
 - The NSIL scraper currently reads only the first listing page, by design.
+- The X scraper reads only the latest visible posts from the profile timeline, by design.
 - For future new sources, the preferred folder naming rule is `<id>_<ShortSourceNameCamelCase>`.

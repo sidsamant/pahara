@@ -1,6 +1,8 @@
 import argparse
 import json
 import logging
+import random
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,8 +19,13 @@ from database import (
     get_enabled_sources,
     init_db,
     seed_default_sources,
+    upsert_scraped_items,
 )
 from scrapers import SCRAPER_REGISTRY
+
+
+X_SCRAPER_KEY = "x_latest_posts"
+X_SOURCE_DELAY_SECONDS = 2.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -79,6 +86,15 @@ def build_aggregate_payload(run_id: int, results_by_source: dict[str, dict], fai
     }
 
 
+def order_sources_for_run(enabled_sources: list[SourceRecord]) -> list[SourceRecord]:
+    # Keep non-X sources in their original DB order, but randomize the X targets
+    # for each run so profile access order is less predictable.
+    non_x_sources = [source for source in enabled_sources if source.scraper_key != X_SCRAPER_KEY]
+    x_sources = [source for source in enabled_sources if source.scraper_key == X_SCRAPER_KEY]
+    random.shuffle(x_sources)
+    return non_x_sources + x_sources
+
+
 def main() -> int:
     args = build_parser().parse_args()
 
@@ -86,7 +102,7 @@ def main() -> int:
     init_db()
     seed_default_sources()
 
-    enabled_sources = get_enabled_sources()
+    enabled_sources = order_sources_for_run(get_enabled_sources())
     run_timestamp = make_run_timestamp()
     log_dir = LOGS_DIR / run_timestamp
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +117,16 @@ def main() -> int:
     failed_count = 0
 
     try:
+        previous_source_was_x = False
         for source in enabled_sources:
+            if source.scraper_key == X_SCRAPER_KEY and previous_source_was_x:
+                run_logger.info(
+                    "Waiting %.1f second(s) before scraping the next X source '%s'.",
+                    X_SOURCE_DELAY_SECONDS,
+                    source.name,
+                )
+                time.sleep(X_SOURCE_DELAY_SECONDS)
+
             source_dir = ensure_source_folder(source)
             output_path = source_dir / "results" / f"{run_timestamp}.json"
             log_path = log_dir / f"{source.folder_name}.log"
@@ -140,11 +165,21 @@ def main() -> int:
                     returned_count=payload["returned_count"],
                     error_text=None,
                 )
+                # Persist the returned items into SQLite after the per-source output
+                # file is written. The source state file still controls "new vs seen"
+                # behavior, while this table provides durable deduplicated storage.
+                persistence_result = upsert_scraped_items(
+                    source_id=source.id,
+                    run_source_id=run_source_id,
+                    items=payload["items"],
+                )
                 source_logger.info(
-                    "Completed source '%s' with %s returned item(s) out of %s current item(s).",
+                    "Completed source '%s' with %s returned item(s) out of %s current item(s); inserted=%s updated=%s in SQLite.",
                     source.name,
                     payload["returned_count"],
                     payload["total_current_count"],
+                    persistence_result["inserted"],
+                    persistence_result["updated"],
                 )
             except Exception as exc:
                 failed_count += 1
@@ -166,6 +201,7 @@ def main() -> int:
                 )
             finally:
                 close_logger(source_logger)
+                previous_source_was_x = source.scraper_key == X_SCRAPER_KEY
 
         aggregate_payload = build_aggregate_payload(run_id, results_by_source, failed_sources)
         aggregate_path = RUN_RESULTS_DIR / f"{run_timestamp}.json"

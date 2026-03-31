@@ -1,0 +1,22 @@
+{
+  "defaults": {
+    "headless": true,
+    "browser_type": "chromium",
+    "chrome_channel": "chromium",
+    "viewport_width": 1440,
+    "viewport_height": 1200,
+    "enable_stealth": true,
+    "max_posts": 10
+  },
+  "auth": {
+    "storage_state_path": "",
+    "cookies_path": "",
+    "user_data_dir": "D:/ai/browser-profiles/x-only"
+  },
+  "accounts": [{
+    "name": "Pixxel space",
+    "url": "https://x.com/PixxelSpace",
+    "enabled": true,
+    "max_posts": 5
+  }]
+}
