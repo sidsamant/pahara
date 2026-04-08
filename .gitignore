@@ -6,3 +6,4 @@ sources/
 config/x_cookies.json
 config/x_storage_state.json
 .browser_profiles
+.vscode/settings.json

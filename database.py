@@ -242,6 +242,12 @@ def sync_configured_x_sources() -> None:
 
 def seed_default_sources() -> None:
     ensure_source(
+        name="Bellatrix Aerospace Updates",
+        link="https://bellatrix.aero/updates",
+        scraper_key="bellatrix_updates",
+        enabled=True,
+    )
+    ensure_source(
         name="Digantara Newsroom",
         link="https://www.digantara.co.in/newsroom",
         scraper_key="digantara_newsroom",
