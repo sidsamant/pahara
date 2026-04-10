@@ -13,10 +13,18 @@
     "cookies_path": "",
     "user_data_dir": "D:/ai/browser-profiles/x-only"
   },
-  "accounts": [{
-    "name": "Pixxel space",
-    "url": "https://x.com/PixxelSpace",
-    "enabled": true,
-    "max_posts": 5
-  }]
+  "accounts": [
+    {
+      "name": "Pixxel space",
+      "url": "https://x.com/PixxelSpace",
+      "enabled": true,
+      "max_posts": 5
+    },
+    {
+      "name": "Bellatrix Aerospace",
+      "url": "https://x.com/BellatrixAero",
+      "enabled": true,
+      "max_posts": 5
+    }
+  ]
 }
