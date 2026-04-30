@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from database import (
+from src.database import (
     LOGS_DIR,
     RUN_RESULTS_DIR,
     SOURCES_DIR,
@@ -17,11 +17,9 @@ from database import (
     finalize_run,
     finalize_run_source,
     get_enabled_sources,
-    init_db,
-    seed_default_sources,
     upsert_scraped_items,
 )
-from scrapers import SCRAPER_REGISTRY
+from src.scrapers import SCRAPER_REGISTRY
 
 
 X_SCRAPER_KEY = "x_latest_posts"
@@ -99,8 +97,6 @@ def main() -> int:
     args = build_parser().parse_args()
 
     ensure_runtime_directories()
-    init_db()
-    seed_default_sources()
 
     enabled_sources = order_sources_for_run(get_enabled_sources())
     run_timestamp = make_run_timestamp()

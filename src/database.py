@@ -7,14 +7,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-SOURCES_DIR = PROJECT_ROOT / "sources"
+SOURCES_DIR = PROJECT_ROOT / ".output" / "sources"
 LOGS_DIR = PROJECT_ROOT / ".logs"
-RUN_RESULTS_DIR = DATA_DIR / "runs"
+RUN_RESULTS_DIR = PROJECT_ROOT / ".output" / "runs"
 DB_PATH = DATA_DIR / "crawler.sqlite3"
-# Centralized config directory for runtime-controlled scrapers such as X.
-CONFIG_DIR = PROJECT_ROOT / "config"
+CONFIG_DIR = PROJECT_ROOT / "src" / "config"
 # Config file used to declare which X profiles should be treated as sources.
 X_TARGETS_CONFIG_PATH = CONFIG_DIR / "x_targets.json"
 
@@ -59,76 +58,76 @@ def get_connection() -> sqlite3.Connection:
     return connection
 
 
-def init_db() -> None:
-    with get_connection() as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS sources (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                link TEXT NOT NULL UNIQUE,
-                folder_name TEXT NOT NULL UNIQUE,
-                scraper_key TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at_utc TEXT NOT NULL,
-                updated_at_utc TEXT NOT NULL
-            );
+# def init_db() -> None:
+#     with get_connection() as connection:
+#         connection.executescript(
+#             """
+#             CREATE TABLE IF NOT EXISTS sources (
+#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+#                 name TEXT NOT NULL UNIQUE,
+#                 link TEXT NOT NULL UNIQUE,
+#                 folder_name TEXT NOT NULL UNIQUE,
+#                 scraper_key TEXT NOT NULL,
+#                 enabled INTEGER NOT NULL DEFAULT 1,
+#                 created_at_utc TEXT NOT NULL,
+#                 updated_at_utc TEXT NOT NULL
+#             );
 
-            CREATE TABLE IF NOT EXISTS runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                started_at_utc TEXT NOT NULL,
-                finished_at_utc TEXT,
-                status TEXT NOT NULL,
-                log_dir TEXT NOT NULL,
-                results_path TEXT,
-                total_sources INTEGER NOT NULL DEFAULT 0,
-                succeeded_sources INTEGER NOT NULL DEFAULT 0,
-                failed_sources INTEGER NOT NULL DEFAULT 0
-            );
+#             CREATE TABLE IF NOT EXISTS runs (
+#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+#                 started_at_utc TEXT NOT NULL,
+#                 finished_at_utc TEXT,
+#                 status TEXT NOT NULL,
+#                 log_dir TEXT NOT NULL,
+#                 results_path TEXT,
+#                 total_sources INTEGER NOT NULL DEFAULT 0,
+#                 succeeded_sources INTEGER NOT NULL DEFAULT 0,
+#                 failed_sources INTEGER NOT NULL DEFAULT 0
+#             );
 
-            CREATE TABLE IF NOT EXISTS run_sources (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-                started_at_utc TEXT NOT NULL,
-                finished_at_utc TEXT,
-                status TEXT NOT NULL,
-                log_path TEXT NOT NULL,
-                output_path TEXT,
-                total_current_count INTEGER NOT NULL DEFAULT 0,
-                returned_count INTEGER NOT NULL DEFAULT 0,
-                error_text TEXT,
-                UNIQUE (run_id, source_id)
-            );
+#             CREATE TABLE IF NOT EXISTS run_sources (
+#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+#                 run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+#                 source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+#                 started_at_utc TEXT NOT NULL,
+#                 finished_at_utc TEXT,
+#                 status TEXT NOT NULL,
+#                 log_path TEXT NOT NULL,
+#                 output_path TEXT,
+#                 total_current_count INTEGER NOT NULL DEFAULT 0,
+#                 returned_count INTEGER NOT NULL DEFAULT 0,
+#                 error_text TEXT,
+#                 UNIQUE (run_id, source_id)
+#             );
 
-            CREATE TABLE IF NOT EXISTS scraped_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-                -- The run_source row that most recently observed this item.
-                run_source_id INTEGER REFERENCES run_sources(id) ON DELETE SET NULL,
-                -- Stable scraper-level item id, e.g. tweet:https://x.com/<handle>/status/<id>.
-                item_id TEXT NOT NULL,
-                section TEXT NOT NULL,
-                item_type TEXT NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                published_date TEXT NOT NULL,
-                url TEXT NOT NULL,
-                image TEXT NOT NULL,
-                read_time TEXT NOT NULL,
-                button_text TEXT NOT NULL,
-                external INTEGER NOT NULL DEFAULT 0,
-                source_page TEXT NOT NULL,
-                raw_json TEXT NOT NULL,
-                -- first_seen_at_utc never changes after the first insert.
-                first_seen_at_utc TEXT NOT NULL,
-                -- last_seen_at_utc is refreshed every time the item is observed again.
-                last_seen_at_utc TEXT NOT NULL,
-                -- Prevent duplicate storage for the same logical item under one source.
-                UNIQUE (source_id, item_id)
-            );
-            """
-        )
+#             CREATE TABLE IF NOT EXISTS scraped_items (
+#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+#                 source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+#                 -- The run_source row that most recently observed this item.
+#                 run_source_id INTEGER REFERENCES run_sources(id) ON DELETE SET NULL,
+#                 -- Stable scraper-level item id, e.g. tweet:https://x.com/<handle>/status/<id>.
+#                 item_id TEXT NOT NULL,
+#                 section TEXT NOT NULL,
+#                 item_type TEXT NOT NULL,
+#                 title TEXT NOT NULL,
+#                 description TEXT NOT NULL,
+#                 published_date TEXT NOT NULL,
+#                 url TEXT NOT NULL,
+#                 image TEXT NOT NULL,
+#                 read_time TEXT NOT NULL,
+#                 button_text TEXT NOT NULL,
+#                 external INTEGER NOT NULL DEFAULT 0,
+#                 source_page TEXT NOT NULL,
+#                 raw_json TEXT NOT NULL,
+#                 -- first_seen_at_utc never changes after the first insert.
+#                 first_seen_at_utc TEXT NOT NULL,
+#                 -- last_seen_at_utc is refreshed every time the item is observed again.
+#                 last_seen_at_utc TEXT NOT NULL,
+#                 -- Prevent duplicate storage for the same logical item under one source.
+#                 UNIQUE (source_id, item_id)
+#             );
+#             """
+#         )
 
 
 def _row_to_source(row: sqlite3.Row) -> SourceRecord:
@@ -240,38 +239,38 @@ def sync_configured_x_sources() -> None:
         )
 
 
-def seed_default_sources() -> None:
-    ensure_source(
-        name="Bellatrix Aerospace Updates",
-        link="https://bellatrix.aero/updates",
-        scraper_key="bellatrix_updates",
-        enabled=True,
-    )
-    ensure_source(
-        name="Digantara Newsroom",
-        link="https://www.digantara.co.in/newsroom",
-        scraper_key="digantara_newsroom",
-        enabled=True,
-    )
-    ensure_source(
-        name="Skyroot Newsroom",
-        link="https://www.skyroot.in/newsroom",
-        scraper_key="skyroot_newsroom",
-        enabled=True,
-    )
-    ensure_source(
-        name="NSIL News",
-        link="https://www.nsilindia.co.in/news",
-        scraper_key="nsil_news",
-        enabled=True,
-    )
-    ensure_source(
-        name="Pixxel Newsroom",
-        link="https://www.pixxel.space/newsroom",
-        scraper_key="pixxel_newsroom",
-        enabled=True,
-    )
-    sync_configured_x_sources()
+# def seed_default_sources() -> None:
+#     ensure_source(
+#         name="Bellatrix Aerospace Updates",
+#         link="https://bellatrix.aero/updates",
+#         scraper_key="bellatrix_updates",
+#         enabled=True,
+#     )
+#     ensure_source(
+#         name="Digantara Newsroom",
+#         link="https://www.digantara.co.in/newsroom",
+#         scraper_key="digantara_newsroom",
+#         enabled=True,
+#     )
+#     ensure_source(
+#         name="Skyroot Newsroom",
+#         link="https://www.skyroot.in/newsroom",
+#         scraper_key="skyroot_newsroom",
+#         enabled=True,
+#     )
+#     ensure_source(
+#         name="NSIL News",
+#         link="https://www.nsilindia.co.in/news",
+#         scraper_key="nsil_news",
+#         enabled=True,
+#     )
+#     ensure_source(
+#         name="Pixxel Newsroom",
+#         link="https://www.pixxel.space/newsroom",
+#         scraper_key="pixxel_newsroom",
+#         enabled=True,
+#     )
+#     sync_configured_x_sources()
 
 
 def get_enabled_sources() -> list[SourceRecord]:

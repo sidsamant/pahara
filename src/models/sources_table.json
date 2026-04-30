@@ -1,0 +1,109 @@
+{
+    "type": "table",
+    "description": "Each row indicates one unique source",
+    "database": null,
+    "name": "sources",
+    "withoutRowId": false,
+    "strict": false,
+    "ddl": "CREATE TABLE sources (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                name TEXT NOT NULL UNIQUE,\n                link TEXT NOT NULL UNIQUE,\n                folder_name TEXT NOT NULL UNIQUE,\n                scraper_key TEXT NOT NULL,\n                enabled INTEGER NOT NULL DEFAULT 1,\n                created_at_utc TEXT NOT NULL,\n                updated_at_utc TEXT NOT NULL\n            );",
+    "columns": [
+        {
+            "name": "id",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "PRIMARY KEY",
+                    "definition": "PRIMARY KEY AUTOINCREMENT"
+                }
+            ]
+        },
+        {
+            "name": "name",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "UNIQUE",
+                    "definition": "UNIQUE"
+                }
+            ]
+        },
+        {
+            "name": "link",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "UNIQUE",
+                    "definition": "UNIQUE"
+                }
+            ]
+        },
+        {
+            "name": "folder_name",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "UNIQUE",
+                    "definition": "UNIQUE"
+                }
+            ]
+        },
+        {
+            "name": "scraper_key",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "enabled",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT 1"
+                }
+            ]
+        },
+        {
+            "name": "created_at_utc",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "updated_at_utc",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL\n            "
+                }
+            ]
+        }
+    ],
+    "rows": [
+    ]
+}

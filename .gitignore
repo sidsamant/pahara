@@ -1,9 +1,9 @@
 __pycache__/
 .crawl4ai/
-data/
 .logs/
-sources/
-config/x_cookies.json
-config/x_storage_state.json
+.output/
 .browser_profiles
 .vscode/settings.json
+.venv
+a.txt
+sources_delete

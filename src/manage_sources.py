@@ -1,7 +1,7 @@
 import argparse
 import json
 
-from database import ensure_runtime_directories, get_all_sources, init_db, seed_default_sources, ensure_source, set_source_enabled
+from src.database import ensure_runtime_directories, get_all_sources, ensure_source, set_source_enabled
 from scrapers.x_latest_posts import validate_x_source_sync
 
 
@@ -62,8 +62,8 @@ def main() -> int:
     # Source sync happens during startup so config-driven X sources appear naturally
     # in the existing management flow without extra one-off commands.
     ensure_runtime_directories()
-    init_db()
-    seed_default_sources()
+    # init_db()
+    # seed_default_sources()
 
     if args.command == "add":
         source = ensure_source(

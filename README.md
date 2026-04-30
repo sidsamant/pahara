@@ -1,24 +1,26 @@
 # Multi-Source Newsroom Runner
 
-This project uses `crawl4ai` plus SQLite to run all enabled newsroom sources, track each run, and write namespaced results into a dedicated folder per source.
+This project uses Python, `crawl4ai` plus SQLite to run all enabled newsroom sources, track each run, and write namespaced results into a dedicated folder per source.
 
-## Data Model
+## Objectives
+1. Scrape content from various internet based sources like webpages, X.com pages, etc.
+2. Ability to download content and save locally. These would contain text, images and metadata about both.
+3. Avoid scraping duplicate target source paths.
+4. Scalable to include new source types
+5. Data provenance should exist to trace every run to its output and vice a versa
+6. Ability to run for scraping all targets or single target.
+7. Ability to Log important milestones while scraping, statuses, stats like counts and errors and failures in files.
 
-- `sources`: unique source id, unique name, unique link, scraper key, enabled flag, folder name
-- `runs`: one row per execution of the runner
-- `run_sources`: one row per source inside a run, including status, output path, counts, and errors
-
-## Runtime Layout
+## Directory Layout
 
 - SQLite database: `.\data\crawler.sqlite3`
 - Per-run logs: `.\.logs\<timestamp>\`
-- Per-source folders live under `.\sources\` using the `folder_name` stored in SQLite.
-- Per-source results: `.\sources\<folder_name>\results\<timestamp>.json`
-- Per-source state: `.\sources\<folder_name>\state\seen_items.json`
-- Aggregate run results: `.\data\runs\<timestamp>.json`
-
-The seeded sources are `Digantara Newsroom`, `Skyroot Newsroom`, and `NSIL News`.
-Configured X accounts can also be synced into the `sources` table from `.\config\x_targets.json`.
+- Outputs: `.\.outputs\`
+- Source code exists in `.\src` folder
+- Configuration for bootstrapping, execution exists in `.\config` folder
+- The root folder has the requirements.txt for setting up a Python VENV for execution environment.
+- The root folder is managed by Git.
+- Various runtime and transient folders are created with names starting with `.` and should be not used as Context for AI unless explicitly asked to do so.
 
 ## Setup
 
@@ -34,7 +36,7 @@ playwright install
 Run all enabled sources and return only newly discovered items:
 
 ```powershell
-python .\run_sources.py
+python -m src.run_sources
 ```
 
 Return all currently discoverable items for each enabled source:
@@ -64,6 +66,9 @@ Disable a source:
 ```powershell
 python .\manage_sources.py disable --id 1
 ```
+## Instructions for AI 
+1. The documentation files may have outdated or incorrect or duplicate information. DO correct it when found.
+2. Document files present hierarchilal information. README.md file is the root which points to other documentation. A rule or instruction or information in lower levels of documentation should override conflicting rules in the higher levels and the conflict should be highlighted or corrected by AI.
 
 ## X Latest Posts
 
@@ -138,14 +143,3 @@ python .\scripts\export_x_storage_state.py --profile-dir D:\ai\browser-profiles\
 ```powershell
 python .\manage_sources.py validate-x-auth --url https://x.com/OpenAI
 ```
-
-## Notes
-
-- The runner executes every enabled source from the `sources` table.
-- Each source gets its own log file inside the current run's `.logs` folder.
-- Results are namespaced by the source folder name.
-- The Digantara scraper enriches press release dates from detail pages because the listing exposes only slug/title for those items.
-- The Skyroot scraper currently reads only the first listing page, by design.
-- The NSIL scraper currently reads only the first listing page, by design.
-- The X scraper reads only the latest visible posts from the profile timeline, by design.
-- For future new sources, the preferred folder naming rule is `<id>_<ShortSourceNameCamelCase>`.

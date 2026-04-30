@@ -1,0 +1,127 @@
+{
+    "type": "table",
+    "description": "Each row indicates a run and the sources targeted in the run",
+    "database": null,
+    "name": "run_sources",
+    "withoutRowId": false,
+    "strict": false,
+    "ddl": "CREATE TABLE run_sources (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,\n                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,\n                started_at_utc TEXT NOT NULL,\n                finished_at_utc TEXT,\n                status TEXT NOT NULL,\n                log_path TEXT NOT NULL,\n                output_path TEXT,\n                total_current_count INTEGER NOT NULL DEFAULT 0,\n                returned_count INTEGER NOT NULL DEFAULT 0,\n                error_text TEXT,\n                UNIQUE (run_id, source_id)\n            );",
+    "columns": [
+        {
+            "name": "id",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "PRIMARY KEY",
+                    "definition": "PRIMARY KEY AUTOINCREMENT"
+                }
+            ]
+        },
+        {
+            "name": "run_id",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "FOREIGN KEY",
+                    "definition": "REFERENCES runs(id) ON DELETE CASCADE"
+                }
+            ]
+        },
+        {
+            "name": "source_id",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "FOREIGN KEY",
+                    "definition": "REFERENCES sources(id) ON DELETE CASCADE"
+                }
+            ]
+        },
+        {
+            "name": "started_at_utc",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "finished_at_utc",
+            "type": "TEXT"
+        },
+        {
+            "name": "status",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "log_path",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "output_path",
+            "type": "TEXT"
+        },
+        {
+            "name": "total_current_count",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT 0"
+                }
+            ]
+        },
+        {
+            "name": "returned_count",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT 0"
+                }
+            ]
+        },
+        {
+            "name": "error_text",
+            "type": "TEXT"
+        }
+    ],
+    "constraints": [
+        {
+            "type": "UNIQUE",
+            "definition": "UNIQUE (run_id, source_id)\n            "
+        }
+    ],
+    "rows": [
+    ]
+}

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a new Crawl4AI-powered scraper that reads the latest visible posts from configured X accounts, uses a regular-user authenticated browser session, returns results in the existing scraper output contract, and persists deduplicated post rows into SQLite.
+Add a new Crawl4AI-powered scraper that reads the latest visible posts from configured X accounts, uses a regular-user authenticated browser session, returns results in the existing scraper output contract, and persists deduplicated post rows into SQLite. It should NOT download posts already downloaded.
 
 ## Input Design
 
@@ -18,7 +18,7 @@ Add a new Crawl4AI-powered scraper that reads the latest visible posts from conf
 
 ## Output Design
 
-The scraper follows `SCRAPER_RULES.md` and returns:
+The scraper follows `./COMMON_SCRAPER_RULES.md` and returns:
 
 - `fetched_at_utc`
 - `namespace`
@@ -67,7 +67,7 @@ Each post item is normalized into:
    A new `scraped_items` table stores returned items using `UNIQUE (source_id, item_id)`. Re-seen posts update `last_seen_at_utc` instead of creating duplicates.
 
 ## Run Flow
-
+The source for the X.com scrapper exists at `src\scrapers\x_latest_posts.py`
 1. Populate `config/x_targets.json` with X profile URLs.
 2. Provide either `storage_state_path`, `cookies_path`, or `user_data_dir`.
 3. Run `python .\\manage_sources.py list` to verify source registration.

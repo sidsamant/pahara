@@ -1,0 +1,103 @@
+{
+    "type": "table",
+    "database": null,
+    "name": "runs",
+    "description": "Each row indicates one run of the system. It can target one or multiple sources.",
+    "withoutRowId": false,
+    "strict": false,
+    "ddl": "CREATE TABLE runs (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                started_at_utc TEXT NOT NULL,\n                finished_at_utc TEXT,\n                status TEXT NOT NULL,\n                log_dir TEXT NOT NULL,\n                results_path TEXT,\n                total_sources INTEGER NOT NULL DEFAULT 0,\n                succeeded_sources INTEGER NOT NULL DEFAULT 0,\n                failed_sources INTEGER NOT NULL DEFAULT 0\n            );",
+    "columns": [
+        {
+            "name": "id",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "PRIMARY KEY",
+                    "definition": "PRIMARY KEY AUTOINCREMENT"
+                }
+            ]
+        },
+        {
+            "name": "started_at_utc",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "finished_at_utc",
+            "type": "TEXT"
+        },
+        {
+            "name": "status",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "log_dir",
+            "type": "TEXT",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "results_path",
+            "type": "TEXT"
+        },
+        {
+            "name": "total_sources",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT 0"
+                }
+            ]
+        },
+        {
+            "name": "succeeded_sources",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT 0"
+                }
+            ]
+        },
+        {
+            "name": "failed_sources",
+            "type": "INTEGER",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL "
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT 0\n            "
+                }
+            ]
+        }
+    ],
+    "rows": [
+    ]
+}
