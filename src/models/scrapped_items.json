@@ -5,7 +5,7 @@
     "name": "scraped_items",
     "withoutRowId": false,
     "strict": false,
-    "ddl": "CREATE TABLE scraped_items (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,\n                run_source_id INTEGER REFERENCES run_sources(id) ON DELETE SET NULL,\n                item_id TEXT NOT NULL,\n                section TEXT NOT NULL,\n                item_type TEXT NOT NULL,\n                title TEXT NOT NULL,\n                description TEXT NOT NULL,\n                published_date TEXT NOT NULL,\n                url TEXT NOT NULL,\n                image TEXT NOT NULL,\n                read_time TEXT NOT NULL,\n                button_text TEXT NOT NULL,\n                external INTEGER NOT NULL DEFAULT 0,\n                source_page TEXT NOT NULL,\n                raw_json TEXT NOT NULL,\n                first_seen_at_utc TEXT NOT NULL,\n                last_seen_at_utc TEXT NOT NULL,\n                UNIQUE (source_id, item_id)\n            );",
+    "ddl": "CREATE TABLE scraped_items (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,\n                run_source_id INTEGER REFERENCES run_sources(id) ON DELETE SET NULL,\n                item_id TEXT NOT NULL,\n                section TEXT NOT NULL,\n                item_type TEXT NOT NULL,\n                scrapper_type TEXT NOT NULL DEFAULT '',\n                title TEXT NOT NULL,\n                description TEXT NOT NULL,\n                published_date TEXT NOT NULL,\n                url TEXT NOT NULL,\n                image TEXT NOT NULL,\n                read_time TEXT NOT NULL,\n                button_text TEXT NOT NULL,\n                external INTEGER NOT NULL DEFAULT 0,\n                source_page TEXT NOT NULL,\n                raw_json TEXT NOT NULL,\n                hashcode TEXT NOT NULL DEFAULT '',\n                first_seen_at_utc TEXT NOT NULL,\n                last_seen_at_utc TEXT NOT NULL,\n                UNIQUE (source_id, item_id)\n            );\n            CREATE UNIQUE INDEX IF NOT EXISTS idx_scraped_items_scrapper_type_hashcode ON scraped_items (scrapper_type, hashcode);",
     "columns": [
         {
             "name": "id",
@@ -23,7 +23,7 @@
             "constraints": [
                 {
                     "type": "NOT NULL",
-                    "definition": "NOT NULL "
+                    "definition": "NOT NULL"
                 },
                 {
                     "type": "FOREIGN KEY",
@@ -68,6 +68,21 @@
                 {
                     "type": "NOT NULL",
                     "definition": "NOT NULL"
+                }
+            ]
+        },
+        {
+            "name": "scrapper_type",
+            "type": "TEXT",
+            "description": "The scraper_key of the scraper that produced this item (e.g. digantara_newsroom, x_latest_posts).",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT ''"
                 }
             ]
         },
@@ -147,7 +162,7 @@
             "constraints": [
                 {
                     "type": "NOT NULL",
-                    "definition": "NOT NULL "
+                    "definition": "NOT NULL"
                 },
                 {
                     "type": "DEFAULT",
@@ -176,6 +191,21 @@
             ]
         },
         {
+            "name": "hashcode",
+            "type": "TEXT",
+            "description": "SHA-256 hash of the item's content fields (title, description, published_date, url, image, read_time, button_text, external, source_page). Used for fast content-level duplicate detection via idx_scraped_items_hashcode index.",
+            "constraints": [
+                {
+                    "type": "NOT NULL",
+                    "definition": "NOT NULL"
+                },
+                {
+                    "type": "DEFAULT",
+                    "definition": "DEFAULT ''"
+                }
+            ]
+        },
+        {
             "name": "first_seen_at_utc",
             "type": "TEXT",
             "constraints": [
@@ -199,9 +229,16 @@
     "constraints": [
         {
             "type": "UNIQUE",
-            "definition": "UNIQUE (source_id, item_id)\n            "
+            "definition": "UNIQUE (source_id, item_id)"
         }
     ],
-    "rows": [
-    ]
+    "indexes": [
+        {
+            "name": "idx_scraped_items_scrapper_type_hashcode",
+            "type": "UNIQUE INDEX",
+            "definition": "CREATE UNIQUE INDEX IF NOT EXISTS idx_scraped_items_scrapper_type_hashcode ON scraped_items (scrapper_type, hashcode)",
+            "description": "Composite unique index on scrapper_type and hashcode. Prevents storing duplicate content (same hash) from the same scraper type and enables fast content-level duplicate lookup."
+        }
+    ],
+    "rows": []
 }

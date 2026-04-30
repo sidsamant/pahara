@@ -20,7 +20,7 @@ Following types of scrappers are used for the sources:
 
 ## Data models {#data-models}
 
-- Data models for the database tables can be found as JSON files in the folder `src\sql`.
+- Data models for the database tables can be found as JSON files in the folder `src\models`.
 - One JSON file for one table and it has description for the table and each of its fields and values indicate what are the data in the table rows.
 - Data models should be updated when database tables are updated
  
@@ -41,7 +41,7 @@ Following types of scrappers are used for the sources:
 
 ## Output Contract
 - Per-source output: `.\.output\sources\<folder_name>\results\<timestamp>.json`
-- Per-source output: `.\.output\sources\<folder_name>\state\seen_items.json`
+- Per-source state: `.\.output\sources\<folder_name>\state\seen_items.json`
 - Aggregate run results: `.\.output\runs\<timestamp>.json`
 
 - Every scraper must return a payload with:
@@ -67,8 +67,8 @@ Following types of scrappers are used for the sources:
   - `button_text`
   - `external`
   - `source_page`
-  - `scrapper_type`
-  - `hashcode`
+
+- `scrapper_type` and `hashcode` are computed by the runner (`run_sources.py`) before persisting to SQLite and do not need to be returned by the scraper.
 
 
 ## Instruction for AI
@@ -77,10 +77,10 @@ Following types of scrappers are used for the sources:
 ## State
 
 - Seen-item state must be stored in:
-  - `sources/<folder_name>/state/seen_items.json`
+  - `.output/sources/<folder_name>/state/seen_items.json`
 - Results must be stored in:
-  - `sources/<folder_name>/results/<timestamp>.json`
-- The runner handles aggregate results in `data/runs/`.
+  - `.output/sources/<folder_name>/results/<timestamp>.json`
+- The runner handles aggregate results in `.output/runs/`.
 
 ## Logging
 

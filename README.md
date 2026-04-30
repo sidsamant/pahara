@@ -15,9 +15,9 @@ This project uses Python, `crawl4ai` plus SQLite to run all enabled newsroom sou
 
 - SQLite database: `.\data\crawler.sqlite3`
 - Per-run logs: `.\.logs\<timestamp>\`
-- Outputs: `.\.outputs\`
+- Outputs: `.\.output\`
 - Source code exists in `.\src` folder
-- Configuration for bootstrapping, execution exists in `.\config` folder
+- Configuration for bootstrapping, execution exists in `.\src\config` folder
 - The root folder has the requirements.txt for setting up a Python VENV for execution environment.
 - The root folder is managed by Git.
 - Various runtime and transient folders are created with names starting with `.` and should be not used as Context for AI unless explicitly asked to do so.
@@ -42,7 +42,7 @@ python -m src.run_sources
 Return all currently discoverable items for each enabled source:
 
 ```powershell
-python .\run_sources.py --all-items
+python -m src.run_sources --all-items
 ```
 
 ## Manage Sources
@@ -50,21 +50,21 @@ python .\run_sources.py --all-items
 List sources:
 
 ```powershell
-python .\manage_sources.py list
+python -m src.manage_sources list
 ```
 
 Add or update a source:
 
 ```powershell
-python .\manage_sources.py add --name "Digantara Newsroom" --link "https://www.digantara.co.in/newsroom" --scraper-key digantara_newsroom
-python .\manage_sources.py add --name "Skyroot Newsroom" --link "https://www.skyroot.in/newsroom" --scraper-key skyroot_newsroom
-python .\manage_sources.py add --name "NSIL News" --link "https://www.nsilindia.co.in/news" --scraper-key nsil_news
+python -m src.manage_sources add --name "Digantara Newsroom" --link "https://www.digantara.co.in/newsroom" --scraper-key digantara_newsroom
+python -m src.manage_sources add --name "Skyroot Newsroom" --link "https://www.skyroot.in/newsroom" --scraper-key skyroot_newsroom
+python -m src.manage_sources add --name "NSIL News" --link "https://www.nsilindia.co.in/news" --scraper-key nsil_news
 ```
 
 Disable a source:
 
 ```powershell
-python .\manage_sources.py disable --id 1
+python -m src.manage_sources disable --id 1
 ```
 ## Instructions for AI 
 1. The documentation files may have outdated or incorrect or duplicate information. DO correct it when found.
@@ -72,7 +72,7 @@ python .\manage_sources.py disable --id 1
 
 ## X Latest Posts
 
-Add one or more X profile URLs to `.\config\x_targets.json`. Each account is synced as its own source using the `x_latest_posts` scraper key.
+Add one or more X profile URLs to `.\src\config\x_targets.json`. Each account is synced as its own source using the `x_latest_posts` scraper key.
 
 Auth is supported through one of:
 
@@ -94,7 +94,7 @@ Example account entry:
 Validate the configured X auth before a full run:
 
 ```powershell
-python .\manage_sources.py validate-x-auth --url https://x.com/OpenAI
+python -m src.manage_sources validate-x-auth --url https://x.com/OpenAI
 ```
 
 Export an isolated X-only `storage_state` file:
@@ -125,14 +125,14 @@ If Chrome is installed under `Program Files (x86)`, use:
 5. Export a fresh `storage_state` from that isolated profile:
 
 ```powershell
-python .\scripts\export_x_storage_state.py --profile-dir D:\ai\browser-profiles\x-only --output .\config\x_storage_state.json
+python .\scripts\export_x_storage_state.py --profile-dir D:\ai\browser-profiles\x-only --output .\src\config\x_storage_state.json
 ```
 
-6. Set `config/x_targets.json` to use that exported file:
+6. Set `src/config/x_targets.json` to use that exported file:
 
 ```json
 "auth": {
-  "storage_state_path": "config/x_storage_state.json",
+  "storage_state_path": "src/config/x_storage_state.json",
   "cookies_path": "",
   "user_data_dir": ""
 }
@@ -141,5 +141,5 @@ python .\scripts\export_x_storage_state.py --profile-dir D:\ai\browser-profiles\
 7. Validate the auth before running the scraper:
 
 ```powershell
-python .\manage_sources.py validate-x-auth --url https://x.com/OpenAI
+python -m src.manage_sources validate-x-auth --url https://x.com/OpenAI
 ```

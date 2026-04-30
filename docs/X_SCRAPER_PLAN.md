@@ -46,7 +46,7 @@ Each post item is normalized into:
 ## Technical Plan
 
 1. Keep source registration config-driven.
-   `seed_default_sources()` now syncs X accounts from `config/x_targets.json`, creating one source record per configured profile.
+   ~~`seed_default_sources()` now syncs X accounts from `config/x_targets.json`~~ — **DEPRECATED**: `seed_default_sources()` has been removed. X accounts are synced into the sources table manually via `manage_sources.py` or directly through `sync_configured_x_sources()` in `database.py`.
 
 2. Use Crawl4AI with authenticated browser state.
    The scraper builds `BrowserConfig` from one of three auth strategies:

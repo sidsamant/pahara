@@ -167,6 +167,7 @@ def main() -> int:
                 persistence_result = upsert_scraped_items(
                     source_id=source.id,
                     run_source_id=run_source_id,
+                    scraper_key=source.scraper_key,
                     items=payload["items"],
                 )
                 source_logger.info(

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -103,12 +104,11 @@ def get_connection() -> sqlite3.Connection:
 #             CREATE TABLE IF NOT EXISTS scraped_items (
 #                 id INTEGER PRIMARY KEY AUTOINCREMENT,
 #                 source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-#                 -- The run_source row that most recently observed this item.
 #                 run_source_id INTEGER REFERENCES run_sources(id) ON DELETE SET NULL,
-#                 -- Stable scraper-level item id, e.g. tweet:https://x.com/<handle>/status/<id>.
 #                 item_id TEXT NOT NULL,
 #                 section TEXT NOT NULL,
 #                 item_type TEXT NOT NULL,
+#                 scrapper_type TEXT NOT NULL DEFAULT '',
 #                 title TEXT NOT NULL,
 #                 description TEXT NOT NULL,
 #                 published_date TEXT NOT NULL,
@@ -119,13 +119,12 @@ def get_connection() -> sqlite3.Connection:
 #                 external INTEGER NOT NULL DEFAULT 0,
 #                 source_page TEXT NOT NULL,
 #                 raw_json TEXT NOT NULL,
-#                 -- first_seen_at_utc never changes after the first insert.
+#                 hashcode TEXT NOT NULL DEFAULT '',
 #                 first_seen_at_utc TEXT NOT NULL,
-#                 -- last_seen_at_utc is refreshed every time the item is observed again.
 #                 last_seen_at_utc TEXT NOT NULL,
-#                 -- Prevent duplicate storage for the same logical item under one source.
 #                 UNIQUE (source_id, item_id)
 #             );
+#             CREATE UNIQUE INDEX IF NOT EXISTS idx_scraped_items_scrapper_type_hashcode ON scraped_items (scrapper_type, hashcode);
 #             """
 #         )
 
@@ -378,7 +377,15 @@ def ensure_runtime_directories() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def upsert_scraped_items(source_id: int, run_source_id: int, items: list[dict[str, Any]]) -> dict[str, int]:
+def _item_hashcode(item: dict[str, Any]) -> str:
+    content = {k: item.get(k, "") for k in (
+        "title", "description", "published_date", "url",
+        "image", "read_time", "button_text", "external", "source_page",
+    )}
+    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+
+def upsert_scraped_items(source_id: int, run_source_id: int, scraper_key: str, items: list[dict[str, Any]]) -> dict[str, int]:
     # The scraper state file prevents repeat returns across normal runs, but we also
     # persist items into SQLite. This helper makes SQLite idempotent by inserting new
     # items once and refreshing existing rows when the same item is seen again.
@@ -398,6 +405,8 @@ def upsert_scraped_items(source_id: int, run_source_id: int, items: list[dict[st
         existing_ids = {row["item_id"] for row in existing_rows}
 
         for item in items:
+            raw_json = json.dumps(item, ensure_ascii=False, sort_keys=True)
+            hashcode = _item_hashcode(item)
             connection.execute(
                 """
                 INSERT INTO scraped_items (
@@ -406,6 +415,7 @@ def upsert_scraped_items(source_id: int, run_source_id: int, items: list[dict[st
                     item_id,
                     section,
                     item_type,
+                    scrapper_type,
                     title,
                     description,
                     published_date,
@@ -416,16 +426,16 @@ def upsert_scraped_items(source_id: int, run_source_id: int, items: list[dict[st
                     external,
                     source_page,
                     raw_json,
+                    hashcode,
                     first_seen_at_utc,
                     last_seen_at_utc
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source_id, item_id) DO UPDATE SET
-                    -- Keep the latest run linkage and normalized payload in sync with
-                    -- whatever the scraper currently sees for this item.
                     run_source_id = excluded.run_source_id,
                     section = excluded.section,
                     item_type = excluded.item_type,
+                    scrapper_type = excluded.scrapper_type,
                     title = excluded.title,
                     description = excluded.description,
                     published_date = excluded.published_date,
@@ -436,6 +446,7 @@ def upsert_scraped_items(source_id: int, run_source_id: int, items: list[dict[st
                     external = excluded.external,
                     source_page = excluded.source_page,
                     raw_json = excluded.raw_json,
+                    hashcode = excluded.hashcode,
                     last_seen_at_utc = excluded.last_seen_at_utc
                 """,
                 (
@@ -444,6 +455,7 @@ def upsert_scraped_items(source_id: int, run_source_id: int, items: list[dict[st
                     item["id"],
                     item.get("section", ""),
                     item.get("type", ""),
+                    scraper_key,
                     item.get("title", ""),
                     item.get("description", ""),
                     item.get("published_date", ""),
@@ -453,14 +465,13 @@ def upsert_scraped_items(source_id: int, run_source_id: int, items: list[dict[st
                     item.get("button_text", ""),
                     int(bool(item.get("external", False))),
                     item.get("source_page", ""),
-                    json.dumps(item, ensure_ascii=False, sort_keys=True),
+                    raw_json,
+                    hashcode,
                     now,
                     now,
                 ),
             )
 
-    # inserted/updated counts are useful in logs when checking whether a run truly
-    # discovered new content or merely re-confirmed already-known items.
     inserted = sum(1 for item_id in item_ids if item_id not in existing_ids)
     updated = len(item_ids) - inserted
     return {"inserted": inserted, "updated": updated}
