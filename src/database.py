@@ -377,12 +377,26 @@ def ensure_runtime_directories() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def _item_hashcode(item: dict[str, Any]) -> str:
+def item_hashcode(item: dict[str, Any]) -> str:
     content = {k: item.get(k, "") for k in (
         "title", "description", "published_date", "url",
         "image", "read_time", "button_text", "external", "source_page",
     )}
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+
+def filter_unseen_items(scrapper_type: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not items:
+        return []
+    hashes = [item_hashcode(item) for item in items]
+    placeholders = ", ".join("?" for _ in hashes)
+    with get_connection() as connection:
+        rows = connection.execute(
+            f"SELECT hashcode FROM scraped_items WHERE scrapper_type = ? AND hashcode IN ({placeholders})",
+            (scrapper_type, *hashes),
+        ).fetchall()
+    seen = {row["hashcode"] for row in rows}
+    return [item for item, h in zip(items, hashes) if h not in seen]
 
 
 def upsert_scraped_items(source_id: int, run_source_id: int, scraper_key: str, items: list[dict[str, Any]]) -> dict[str, int]:
@@ -406,7 +420,7 @@ def upsert_scraped_items(source_id: int, run_source_id: int, scraper_key: str, i
 
         for item in items:
             raw_json = json.dumps(item, ensure_ascii=False, sort_keys=True)
-            hashcode = _item_hashcode(item)
+            hashcode = item_hashcode(item)
             connection.execute(
                 """
                 INSERT INTO scraped_items (

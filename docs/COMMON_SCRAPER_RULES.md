@@ -41,7 +41,6 @@ Following types of scrappers are used for the sources:
 
 ## Output Contract
 - Per-source output: `.\.output\sources\<folder_name>\results\<timestamp>.json`
-- Per-source state: `.\.output\sources\<folder_name>\state\seen_items.json`
 - Aggregate run results: `.\.output\runs\<timestamp>.json`
 
 - Every scraper must return a payload with:
@@ -49,9 +48,10 @@ Following types of scrappers are used for the sources:
   - `namespace`
   - `source_name`
   - `source_link`
-  - `returned_count`
   - `total_current_count`
-  - `items`
+  - `items` — all items currently discoverable on the source (no filtering)
+
+- `returned_count` is added by `run_sources.py` after deduplication and must not be set by the scraper.
 
 - Every item in the scrapper output payload contains content scrapped.
   It should have following structure similar to `scrapped_items` table:
@@ -68,7 +68,7 @@ Following types of scrappers are used for the sources:
   - `external`
   - `source_page`
 
-- `scrapper_type` and `hashcode` are computed by the runner (`run_sources.py`) before persisting to SQLite and do not need to be returned by the scraper.
+- `scrapper_type` and `hashcode` are computed by the runner (`run_sources.py`) before persisting to SQLite and must not be returned by the scraper.
 
 
 ## Instruction for AI
@@ -76,8 +76,8 @@ Following types of scrappers are used for the sources:
 
 ## State
 
-- Seen-item state must be stored in:
-  - `.output/sources/<folder_name>/state/seen_items.json`
+- Deduplication is handled entirely by SQLite via the `(scrapper_type, hashcode)` index.
+- Scrapers do not manage state files. There are no `seen_items.json` files.
 - Results must be stored in:
   - `.output/sources/<folder_name>/results/<timestamp>.json`
 - The runner handles aggregate results in `.output/runs/`.

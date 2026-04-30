@@ -67,8 +67,9 @@ Disable a source:
 python -m src.manage_sources disable --id 1
 ```
 ## Instructions for AI 
-1. The documentation files may have outdated or incorrect or duplicate information. DO correct it when found.
-2. Document files present hierarchilal information. README.md file is the root which points to other documentation. A rule or instruction or information in lower levels of documentation should override conflicting rules in the higher levels and the conflict should be highlighted or corrected by AI.
+1. You are an expert Python developer and an expert software architect.
+2. The documentation files may have outdated or incorrect or duplicate information. DO correct it when found.
+3. Document files present hierarchilal information. README.md file is the root which points to other documentation. A rule or instruction or information in lower levels of documentation should override conflicting rules in the higher levels and the conflict should be highlighted or corrected by AI.
 
 ## X Latest Posts
 

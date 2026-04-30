@@ -1,5 +1,4 @@
 import html
-import json
 import logging
 import os
 import re
@@ -54,24 +53,6 @@ def get_html_payload(result: Any) -> str:
         if value:
             return value
     raise RuntimeError("Crawl4AI did not return HTML content.")
-
-
-def load_seen_ids(state_file: Path) -> set[str]:
-    if not state_file.exists():
-        return set()
-
-    payload = json.loads(state_file.read_text(encoding="utf-8"))
-    return set(payload.get("seen_ids", []))
-
-
-def save_state(state_file: Path, items: list[dict[str, Any]]) -> None:
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "saved_at_utc": datetime.now(timezone.utc).isoformat(),
-        "seen_ids": sorted(item["id"] for item in items),
-        "total_items": len(items),
-    }
-    state_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def normalize_item_type(value: str) -> str:
@@ -136,36 +117,17 @@ async def collect_items(source_link: str, timeout_ms: int, logger: logging.Logge
 def scrape_source(
     *,
     source: Any,
-    source_dir: Path,
     timeout_ms: int,
-    all_items: bool,
     logger: logging.Logger,
 ) -> dict[str, Any]:
-    state_file = source_dir / "state" / "seen_items.json"
-    seen_ids = load_seen_ids(state_file)
     import asyncio
-
     current_items = asyncio.run(collect_items(source.link, timeout_ms=timeout_ms, logger=logger))
-
-    if all_items:
-        selected_items = current_items
-    else:
-        selected_items = [item for item in current_items if item["id"] not in seen_ids]
-
-    save_state(state_file, current_items)
-
-    payload = {
+    logger.info("Collected %s current item(s).", len(current_items))
+    return {
         "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
         "namespace": source.folder_name,
         "source_name": source.name,
         "source_link": source.link,
-        "returned_count": len(selected_items),
         "total_current_count": len(current_items),
-        "items": selected_items,
+        "items": current_items,
     }
-    logger.info(
-        "Returning %s item(s); %s current item(s) recorded in state.",
-        payload["returned_count"],
-        payload["total_current_count"],
-    )
-    return payload

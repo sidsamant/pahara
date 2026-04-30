@@ -14,6 +14,7 @@ from src.database import (
     create_run,
     create_run_source,
     ensure_runtime_directories,
+    filter_unseen_items,
     finalize_run,
     finalize_run_source,
     get_enabled_sources,
@@ -71,7 +72,6 @@ def close_logger(logger: logging.Logger) -> None:
 def ensure_source_folder(source: SourceRecord) -> Path:
     source_dir = SOURCES_DIR / source.folder_name
     (source_dir / "results").mkdir(parents=True, exist_ok=True)
-    (source_dir / "state").mkdir(parents=True, exist_ok=True)
     return source_dir
 
 
@@ -135,11 +135,13 @@ def main() -> int:
                 scraper = SCRAPER_REGISTRY[source.scraper_key]
                 payload = scraper(
                     source=source,
-                    source_dir=source_dir,
                     timeout_ms=args.timeout_ms,
-                    all_items=args.all_items,
                     logger=source_logger,
                 )
+                all_current = payload["items"]
+                new_items = all_current if args.all_items else filter_unseen_items(source.scraper_key, all_current)
+                payload["returned_count"] = len(new_items)
+                payload["items"] = new_items
                 payload["source"] = {
                     "id": source.id,
                     "name": source.name,
@@ -161,14 +163,11 @@ def main() -> int:
                     returned_count=payload["returned_count"],
                     error_text=None,
                 )
-                # Persist the returned items into SQLite after the per-source output
-                # file is written. The source state file still controls "new vs seen"
-                # behavior, while this table provides durable deduplicated storage.
                 persistence_result = upsert_scraped_items(
                     source_id=source.id,
                     run_source_id=run_source_id,
                     scraper_key=source.scraper_key,
-                    items=payload["items"],
+                    items=new_items,
                 )
                 source_logger.info(
                     "Completed source '%s' with %s returned item(s) out of %s current item(s); inserted=%s updated=%s in SQLite.",
