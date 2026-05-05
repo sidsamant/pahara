@@ -135,3 +135,10 @@ Following types of scrappers are used for the sources:
 - `python .\run_sources.py --all-items` completes successfully.
 - A new run row and run_source row or rows are recorded in SQLite.
 - A source folder, result file, and per-source log file are created.
+
+## Debugging Steps
+
+- Look into `.output/runs` folder for a JSON file with timestamp as it name ending with `Z`.
+- Use the JSON file to understand which source scrapper failed or whether `run_sources.py` failed.
+- Then find the run.log in `/logs` folder to understand the execution path of the `run_sources.py`
+- Then find the log file for the affected sources and read them to understand the root cause.

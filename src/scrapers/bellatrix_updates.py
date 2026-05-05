@@ -1,19 +1,11 @@
-import asyncio
 import html
-import logging
-import os
 import re
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-os.environ.setdefault("CRAWL4_AI_BASE_DIRECTORY", str(PROJECT_ROOT))
-
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
-
+from .base import BaseScraper
+from .mixins import DetailEnrichmentMixin
 
 POST_PATTERN = re.compile(
     r'data-framer-name="Post".*?'
@@ -28,206 +20,100 @@ DETAIL_CONTENT_PATTERN = re.compile(
     r'data-framer-name="Content">(?P<content>.*?)<div class="ssr-variant',
     re.IGNORECASE | re.DOTALL,
 )
+
 PARAGRAPH_PATTERN = re.compile(r"<p[^>]*>(?P<text>.*?)</p>", re.DOTALL)
-TAG_PATTERN = re.compile(r"<[^>]+>")
-WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
-def strip_html(value: str) -> str:
-    value = html.unescape(value)
-    value = TAG_PATTERN.sub(" ", value)
-    value = WHITESPACE_PATTERN.sub(" ", value)
-    try:
-        value = value.encode("latin1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        pass
-    replacements = {
-        "Ã¢â‚¬â„¢": "’",
-        "Ã¢â‚¬Ëœ": "‘",
-        "Ã¢â‚¬Å“": "“",
-        "Ã¢â‚¬Â": "”",
-        "Ã¢â‚¬â€œ": "–",
-        "Ã¢â‚¬â€": "—",
-        "â€™": "’",
-        "â€˜": "‘",
-        "â€œ": "“",
-        "â€": "”",
-        "â€“": "–",
-        "â€”": "—",
-        "â„¢": "™",
-        "â‚¹": "₹",
+class BellatrixScraper(BaseScraper, DetailEnrichmentMixin):
+    encoding_fixes = {
+        "\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u201e\u00a2": "\u2019",
+        "\u00c3\u00a2\u00e2\u201a\u00ac\u00cb\u0153": "\u2018",
+        "\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u201c": "\u201c",
+        "\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u20ac\u0153": "\u2013",
+        "\u00e2\u20ac\u2122": "\u2019",
+        "\u00e2\u20ac\u02dc": "\u2018",
+        "\u00e2\u20ac\u0153": "\u201c",
+        "\u00e2\u20ac\u201c": "\u2013",
+        "\u00e2\u20ac\u201d": "\u2014",
+        "\u00e2\u201e\u00a2": "\u2122",
+        "\u00e2\u201a\u00b9": "\u20b9",
     }
-    for old, new in replacements.items():
-        value = value.replace(old, new)
-    return value.strip()
 
-
-def normalize_published_date(value: str) -> str:
-    cleaned = strip_html(value)
-    try:
-        return datetime.strptime(cleaned, "%B %d, %Y").date().isoformat()
-    except ValueError:
-        return cleaned
-
-
-def looks_like_display_date(value: str) -> bool:
-    cleaned = strip_html(value)
-    for fmt in ("%d %B %Y", "%B %d, %Y"):
+    def _normalize_published_date(self, value: str) -> str:
+        cleaned = self.strip_html(value)
         try:
-            datetime.strptime(cleaned, fmt)
-            return True
+            return datetime.strptime(cleaned, "%B %d, %Y").date().isoformat()
         except ValueError:
-            continue
-    return False
+            return cleaned
 
+    def _looks_like_display_date(self, value: str) -> bool:
+        cleaned = self.strip_html(value)
+        for fmt in ("%d %B %Y", "%B %d, %Y"):
+            try:
+                datetime.strptime(cleaned, fmt)
+                return True
+            except ValueError:
+                continue
+        return False
 
-def get_html_payload(result: Any) -> str:
-    for field_name in ("html", "cleaned_html", "fit_html"):
-        value = getattr(result, field_name, None)
-        if value:
-            return value
-    raise RuntimeError("Crawl4AI did not return HTML content.")
+    def _is_internal_url(self, url: str) -> bool:
+        parsed = urlparse(url)
+        return parsed.netloc in {"bellatrix.aero", "www.bellatrix.aero"} and parsed.path.startswith("/updates/")
 
+    def should_enrich(self, item: dict[str, Any]) -> bool:
+        return self._is_internal_url(item["url"])
 
-def make_run_config(timeout_ms: int) -> CrawlerRunConfig:
-    return CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        page_timeout=timeout_ms,
-        verbose=False,
-        wait_until="domcontentloaded",
-        delay_before_return_html=0.5,
-    )
-
-
-async def fetch_page_html(crawler: AsyncWebCrawler, url: str, timeout_ms: int) -> str:
-    result = await crawler.arun(url=url, config=make_run_config(timeout_ms))
-    if not result.success:
-        raise RuntimeError(f"Failed to crawl {url}: {result.error_message}")
-    return get_html_payload(result)
-
-
-def is_internal_bellatrix_url(url: str) -> bool:
-    parsed = urlparse(url)
-    return parsed.netloc in {"bellatrix.aero", "www.bellatrix.aero"} and parsed.path.startswith("/updates/")
-
-
-def extract_listing_items(raw_html: str, source_link: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    for match in POST_PATTERN.finditer(raw_html):
-        relative_or_absolute_url = html.unescape(match.group("href")).strip()
-        absolute_url = urljoin(source_link, relative_or_absolute_url)
-        item_id = f"news:{absolute_url}"
-        if item_id in seen_ids:
-            continue
-        seen_ids.add(item_id)
-
-        parsed = urlparse(absolute_url)
-        is_external = parsed.netloc not in {"bellatrix.aero", "www.bellatrix.aero"}
-
-        items.append(
-            {
+    def extract_items(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for match in POST_PATTERN.finditer(raw_html):
+            absolute_url = urljoin(source_link, html.unescape(match.group("href")).strip())
+            item_id = f"news:{absolute_url}"
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            parsed = urlparse(absolute_url)
+            is_external = parsed.netloc not in {"bellatrix.aero", "www.bellatrix.aero"}
+            items.append({
                 "id": item_id,
                 "section": "updates",
                 "type": "News",
-                "title": strip_html(match.group("title")),
+                "title": self.strip_html(match.group("title")),
                 "description": "",
-                "published_date": normalize_published_date(match.group("published_date")),
+                "published_date": self._normalize_published_date(match.group("published_date")),
                 "url": absolute_url,
                 "image": html.unescape(match.group("image")).strip(),
                 "read_time": "",
                 "button_text": "Read More",
                 "external": is_external,
                 "source_page": source_link,
-            }
+            })
+        return items
+
+    def extract_detail_fields(self, raw_html: str) -> dict[str, Any]:
+        content_match = DETAIL_CONTENT_PATTERN.search(raw_html)
+        if not content_match:
+            return {"description": ""}
+        paragraphs: list[str] = []
+        for paragraph_match in PARAGRAPH_PATTERN.finditer(content_match.group("content")):
+            text = self.strip_html(paragraph_match.group("text"))
+            if not text:
+                continue
+            if self._looks_like_display_date(text):
+                continue
+            if text in paragraphs:
+                continue
+            if text.startswith("For media inquiries") or text.startswith("Email:") or text.startswith("Copyright @"):
+                break
+            paragraphs.append(text)
+        return {"description": " ".join(paragraphs[:3]).strip()}
+
+    def _sort_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            items,
+            key=lambda i: (i.get("published_date") or "", i.get("title") or ""),
+            reverse=True,
         )
 
-    return items
 
-
-def extract_detail_fields(raw_html: str) -> dict[str, str]:
-    content_match = DETAIL_CONTENT_PATTERN.search(raw_html)
-    if not content_match:
-        return {"description": ""}
-
-    paragraphs: list[str] = []
-    for paragraph_match in PARAGRAPH_PATTERN.finditer(content_match.group("content")):
-        text = strip_html(paragraph_match.group("text"))
-        if not text:
-            continue
-        if looks_like_display_date(text):
-            continue
-        if text in paragraphs:
-            continue
-        if text.startswith("For media inquiries") or text.startswith("Email:") or text.startswith("Copyright @"):
-            break
-        paragraphs.append(text)
-
-    description = " ".join(paragraphs[:3]).strip()
-    return {
-        "description": description,
-    }
-
-
-async def enrich_item(
-    crawler: AsyncWebCrawler, item: dict[str, Any], timeout_ms: int, logger: logging.Logger
-) -> dict[str, Any]:
-    try:
-        detail_html = await fetch_page_html(crawler, item["url"], timeout_ms=timeout_ms)
-    except Exception:
-        logger.exception("Bellatrix detail enrichment failed for %s; keeping listing fields.", item["url"])
-        return item
-
-    detail_fields = extract_detail_fields(detail_html)
-    if detail_fields.get("description"):
-        item["description"] = detail_fields["description"]
-    return item
-
-
-def sort_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        items,
-        key=lambda item: (item.get("published_date") or "", item.get("title") or ""),
-        reverse=True,
-    )
-
-
-async def collect_items(source_link: str, timeout_ms: int, logger: logging.Logger) -> list[dict[str, Any]]:
-    logger.info("Starting Crawl4AI fetch for %s", source_link)
-    logger.info("Bellatrix scraper is intentionally limited to page 1 of the updates listing.")
-    browser_config = BrowserConfig(headless=True, verbose=False)
-    async with AsyncWebCrawler(
-        config=browser_config,
-        base_directory=str(PROJECT_ROOT),
-    ) as crawler:
-        listing_html = await fetch_page_html(crawler, source_link, timeout_ms=timeout_ms)
-        items = extract_listing_items(listing_html, source_link=source_link)
-        logger.info("Collected %s listing item(s) from Bellatrix page 1.", len(items))
-
-        internal_items = [item for item in items if is_internal_bellatrix_url(item["url"])]
-        if internal_items:
-            logger.info("Enriching %s internal Bellatrix detail page(s).", len(internal_items))
-            await asyncio.gather(
-                *(enrich_item(crawler, item, timeout_ms=timeout_ms, logger=logger) for item in internal_items)
-            )
-
-        return sort_items(items)
-
-
-def scrape_source(
-    *,
-    source: Any,
-    timeout_ms: int,
-    logger: logging.Logger,
-) -> dict[str, Any]:
-    current_items = asyncio.run(collect_items(source.link, timeout_ms=timeout_ms, logger=logger))
-    logger.info("Collected %s current item(s).", len(current_items))
-    return {
-        "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
-        "namespace": source.folder_name,
-        "source_name": source.name,
-        "source_link": source.link,
-        "total_current_count": len(current_items),
-        "items": current_items,
-    }
+scrape_source = BellatrixScraper().scrape_source

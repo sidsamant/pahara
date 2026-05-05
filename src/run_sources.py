@@ -140,6 +140,9 @@ def main() -> int:
                 )
                 all_current = payload["items"]
                 new_items = all_current if args.all_items else filter_unseen_items(source.scraper_key, all_current)
+                duplicate_count = len(all_current) - len(new_items)
+                if duplicate_count:
+                    source_logger.info("Skipped %s duplicate item(s) already in database.", duplicate_count)
                 payload["returned_count"] = len(new_items)
                 payload["items"] = new_items
                 payload["source"] = {

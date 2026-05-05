@@ -1,19 +1,14 @@
 import asyncio
-import html
+import html as html_module
 import json
 import logging
-import os
 import re
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
+from crawl4ai import AsyncWebCrawler
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-os.environ.setdefault("CRAWL4_AI_BASE_DIRECTORY", str(PROJECT_ROOT))
-
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
-
+from .base import BaseScraper, PROJECT_ROOT
+from .mixins import DetailEnrichmentMixin
 
 ARTICLE_PATTERN = re.compile(
     r'\{\\"title\\":\\"(?P<title>(?:\\\\.|[^"\\])*)\\",'
@@ -42,213 +37,134 @@ DETAIL_FRAGMENT_PATTERN = re.compile(
     re.DOTALL,
 )
 
-TAG_PATTERN = re.compile(r"<[^>]+>")
-WHITESPACE_PATTERN = re.compile(r"\s+")
+_SUSPICIOUS_TOKENS = (
+    '","description":"',
+    '","image":',
+    "imageMobile",
+    '{"title":"',
+    "},{",
+)
 
 
-def decode_json_string(value: str) -> str:
+def _decode_json_str(value: str) -> str:
     return json.loads(f'"{value}"')
 
 
-def clean_text(value: str) -> str:
-    value = decode_json_string(value)
-    value = html.unescape(value)
-    value = TAG_PATTERN.sub(" ", value)
-    value = WHITESPACE_PATTERN.sub(" ", value)
-    return value.strip()
+class DigantaraScraper(BaseScraper, DetailEnrichmentMixin):
 
+    def _clean(self, value: str) -> str:
+        return self.strip_html(_decode_json_str(value))
 
-def get_html_payload(result: Any) -> str:
-    for field_name in ("html", "cleaned_html", "fit_html"):
-        value = getattr(result, field_name, None)
-        if value:
-            return value
-    raise RuntimeError("Crawl4AI did not return HTML content.")
+    def should_enrich(self, item: dict[str, Any]) -> bool:
+        return item["type"] == "Press_Release"
 
-
-async def fetch_page_html(crawler: AsyncWebCrawler, url: str, timeout_ms: int) -> str:
-    config = CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        page_timeout=timeout_ms,
-        verbose=False,
-        wait_until="domcontentloaded",
-        delay_before_return_html=0.5,
-    )
-    result = await crawler.arun(url=url, config=config)
-    if not result.success:
-        raise RuntimeError(f"Failed to crawl {url}: {result.error_message}")
-    return get_html_payload(result)
-
-
-def extract_article_items(raw_html: str, source_link: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    for match in ARTICLE_PATTERN.finditer(raw_html):
-        link = decode_json_string(match.group("link"))
-        item_type = match.group("item_type")
-        section = "news" if item_type == "News" else "media_interviews"
-        item_id = f"{section}:{link}"
-        if item_id in seen_ids:
-            continue
-        seen_ids.add(item_id)
-
-        items.append(
-            {
+    def extract_items(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for match in ARTICLE_PATTERN.finditer(raw_html):
+            link = _decode_json_str(match.group("link"))
+            item_type = match.group("item_type")
+            section = "news" if item_type == "News" else "media_interviews"
+            item_id = f"{section}:{link}"
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            items.append({
                 "id": item_id,
                 "section": section,
                 "type": item_type,
-                "title": clean_text(match.group("title")),
-                "description": clean_text(match.group("description")),
+                "title": self._clean(match.group("title")),
+                "description": self._clean(match.group("description")),
                 "published_date": match.group("published_date"),
                 "url": link,
-                "image": decode_json_string(match.group("image")),
-                "read_time": clean_text(match.group("read_time")),
-                "button_text": clean_text(match.group("button_text")),
+                "image": _decode_json_str(match.group("image")),
+                "read_time": self._clean(match.group("read_time")),
+                "button_text": self._clean(match.group("button_text")),
                 "external": match.group("external") == "true",
                 "source_page": source_link,
-            }
-        )
+            })
+        return items
 
-    return items
-
-
-def extract_press_release_listing(raw_html: str, source_link: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    for match in PRESS_RELEASE_PATTERN.finditer(raw_html):
-        slug = clean_text(match.group("slug"))
-        item_id = f"press_release:{slug}"
-        if item_id in seen_ids:
-            continue
-        seen_ids.add(item_id)
-
-        items.append(
-            {
+    def _extract_press_release_listing(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for match in PRESS_RELEASE_PATTERN.finditer(raw_html):
+            slug = self._clean(match.group("slug"))
+            item_id = f"press_release:{slug}"
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            items.append({
                 "id": item_id,
                 "section": "press_release",
                 "type": "Press_Release",
                 "slug": slug,
-                "title": clean_text(match.group("title")),
-                "description": clean_text(match.group("description")),
+                "title": self._clean(match.group("title")),
+                "description": self._clean(match.group("description")),
                 "published_date": None,
                 "url": f"{source_link}/{slug}",
                 "image": "",
-                "read_time": clean_text(match.group("read_time")),
+                "read_time": self._clean(match.group("read_time")),
                 "button_text": "Read More",
                 "external": False,
                 "source_page": source_link,
-            }
+            })
+        return items
+
+    def _summarize_detail(self, raw_detail_content: str) -> str:
+        fragments: list[str] = []
+        for match in DETAIL_FRAGMENT_PATTERN.finditer(raw_detail_content):
+            for group_name in ("title", "description"):
+                cleaned = self._clean(match.group(group_name))
+                if not cleaned or cleaned.startswith("$"):
+                    continue
+                if cleaned not in fragments:
+                    fragments.append(cleaned)
+        return " ".join(fragments[:4]).strip()
+
+    def extract_detail_fields(self, raw_html: str) -> dict[str, Any]:
+        match = PRESS_RELEASE_DETAIL_PATTERN.search(raw_html)
+        if not match:
+            return {}
+        description = self._clean(match.group("description"))
+        if not description:
+            description = self._summarize_detail(match.group("detail_content"))
+        if any(tok in description for tok in _SUSPICIOUS_TOKENS):
+            description = ""
+        return {
+            "title": self._clean(match.group("title")),
+            "description": description,
+            "published_date": match.group("published_date"),
+        }
+
+    async def collect_items(
+        self, source_link: str, timeout_ms: int, logger: logging.Logger
+    ) -> list[dict[str, Any]]:
+        logger.info("Starting Crawl4AI fetch for %s", source_link)
+        async with AsyncWebCrawler(
+            config=self._browser_config(), base_directory=str(PROJECT_ROOT)
+        ) as crawler:
+            raw_html = await self._fetch_html(crawler, source_link, timeout_ms)
+            items = self.extract_items(raw_html, source_link)
+            press_releases = self._extract_press_release_listing(raw_html, source_link)
+            if press_releases:
+                logger.info("Enriching %s press release detail page(s).", len(press_releases))
+                await asyncio.gather(
+                    *(self._enrich_one(crawler, pr, timeout_ms, logger) for pr in press_releases)
+                )
+                items.extend(press_releases)
+        return self._sort_items(items)
+
+    def _sort_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            items,
+            key=lambda i: (
+                i.get("published_date") or "",
+                i.get("section") or "",
+                i.get("title") or "",
+            ),
+            reverse=True,
         )
 
-    return items
 
-
-def summarize_detail_content(raw_detail_content: str) -> str:
-    fragments: list[str] = []
-    for match in DETAIL_FRAGMENT_PATTERN.finditer(raw_detail_content):
-        for group_name in ("title", "description"):
-            cleaned = clean_text(match.group(group_name))
-            if not cleaned or cleaned.startswith("$"):
-                continue
-            if cleaned not in fragments:
-                fragments.append(cleaned)
-    return " ".join(fragments[:4]).strip()
-
-
-def sanitize_description(value: str) -> str:
-    suspicious_tokens = (
-        '","description":"',
-        '","image":',
-        "imageMobile",
-        '{"title":"',
-        '},{',
-    )
-    if any(token in value for token in suspicious_tokens):
-        return ""
-    return value
-
-
-def extract_press_release_detail(raw_html: str, slug: str) -> dict[str, str]:
-    match = PRESS_RELEASE_DETAIL_PATTERN.search(raw_html)
-    if not match:
-        raise RuntimeError(f"Unable to extract press release detail payload for slug '{slug}'.")
-
-    extracted_slug = clean_text(match.group("slug"))
-    if extracted_slug != slug:
-        raise RuntimeError(
-            f"Unexpected slug mismatch while parsing detail page. Expected '{slug}', got '{extracted_slug}'."
-        )
-
-    description = clean_text(match.group("description"))
-    if not description:
-        description = summarize_detail_content(match.group("detail_content"))
-    description = sanitize_description(description)
-
-    return {
-        "title": clean_text(match.group("title")),
-        "description": description,
-        "published_date": match.group("published_date"),
-    }
-
-
-async def enrich_press_release(
-    crawler: AsyncWebCrawler, item: dict[str, Any], timeout_ms: int
-) -> dict[str, Any]:
-    raw_html = await fetch_page_html(crawler, item["url"], timeout_ms=timeout_ms)
-    details = extract_press_release_detail(raw_html, item["slug"])
-    item.update(details)
-    return item
-
-
-def sort_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        items,
-        key=lambda item: (
-            item.get("published_date") or "",
-            item.get("section") or "",
-            item.get("title") or "",
-        ),
-        reverse=True,
-    )
-
-
-async def collect_items(source_link: str, timeout_ms: int, logger: logging.Logger) -> list[dict[str, Any]]:
-    logger.info("Starting Crawl4AI fetch for %s", source_link)
-    browser_config = BrowserConfig(headless=True, verbose=False)
-    async with AsyncWebCrawler(
-        config=browser_config,
-        base_directory=str(PROJECT_ROOT),
-    ) as crawler:
-        newsroom_html = await fetch_page_html(crawler, source_link, timeout_ms=timeout_ms)
-        items = extract_article_items(newsroom_html, source_link=source_link)
-        press_releases = extract_press_release_listing(newsroom_html, source_link=source_link)
-
-        if press_releases:
-            logger.info("Enriching %s press release detail page(s).", len(press_releases))
-            enriched = await asyncio.gather(
-                *(enrich_press_release(crawler, item, timeout_ms=timeout_ms) for item in press_releases)
-            )
-            items.extend(enriched)
-
-        logger.info("Collected %s current item(s).", len(items))
-        return sort_items(items)
-
-
-def scrape_source(
-    *,
-    source: Any,
-    timeout_ms: int,
-    logger: logging.Logger,
-) -> dict[str, Any]:
-    current_items = asyncio.run(collect_items(source.link, timeout_ms=timeout_ms, logger=logger))
-    logger.info("Collected %s current item(s).", len(current_items))
-    return {
-        "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
-        "namespace": source.folder_name,
-        "source_name": source.name,
-        "source_link": source.link,
-        "total_current_count": len(current_items),
-        "items": current_items,
-    }
+scrape_source = DigantaraScraper().scrape_source

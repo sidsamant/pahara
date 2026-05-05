@@ -12,7 +12,7 @@ This project uses Python, `crawl4ai` plus SQLite to run all enabled newsroom sou
 7. Ability to Log important milestones while scraping, statuses, stats like counts and errors and failures in files.
 
 ## Directory Layout
-
+- Documentation on architecture and technical design can be found in the folder `docs` and start from the root document `docs\COMMON_SCRAPER_RULES.md`
 - SQLite database: `.\data\crawler.sqlite3`
 - Per-run logs: `.\.logs\<timestamp>\`
 - Outputs: `.\.output\`
@@ -30,6 +30,22 @@ python -m venv .venv
 pip install -r requirements.txt
 playwright install
 ```
+
+After the initial install, and after any schema change, apply pending database migrations:
+
+```powershell
+python -m src.setup migrate
+```
+
+This is a one-time operation per environment. `run_sources.py` assumes the schema is already up to date.
+
+After migrating a database that already has rows, backfill the `scrapper_type` and `hashcode` columns for any existing items that have empty values:
+
+```powershell
+python -m src.setup backfill
+```
+
+Safe to re-run — only rows with at least one empty field are updated.
 
 ## Run
 

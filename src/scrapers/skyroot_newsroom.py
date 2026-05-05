@@ -1,17 +1,8 @@
 import html
-import logging
-import os
 import re
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-os.environ.setdefault("CRAWL4_AI_BASE_DIRECTORY", str(PROJECT_ROOT))
-
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
-
+from .base import BaseScraper
 
 ITEM_PATTERN = re.compile(
     r'<div role="listitem" class="news-header_item w-dyn-item">.*?'
@@ -22,112 +13,41 @@ ITEM_PATTERN = re.compile(
     re.DOTALL,
 )
 
-TAG_PATTERN = re.compile(r"<[^>]+>")
-WHITESPACE_PATTERN = re.compile(r"\s+")
 
-
-def strip_html(value: str) -> str:
-    value = html.unescape(value)
-    value = TAG_PATTERN.sub(" ", value)
-    value = WHITESPACE_PATTERN.sub(" ", value)
-    try:
-        value = value.encode("latin1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        pass
-    replacements = {
+class SkyRootScraper(BaseScraper):
+    encoding_fixes = {
         "â€™": "’",
         "â€˜": "‘",
         "â€œ": "“",
-        "â€": "”",
         "â€“": "–",
         "â€”": "—",
     }
-    for old, new in replacements.items():
-        value = value.replace(old, new)
-    return value.strip()
 
-
-def get_html_payload(result: Any) -> str:
-    for field_name in ("html", "cleaned_html", "fit_html"):
-        value = getattr(result, field_name, None)
-        if value:
-            return value
-    raise RuntimeError("Crawl4AI did not return HTML content.")
-
-
-def normalize_item_type(value: str) -> str:
-    normalized = strip_html(value)
-    return normalized.replace("  ", " ")
-
-
-def extract_items(raw_html: str, source_link: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    for match in ITEM_PATTERN.finditer(raw_html):
-        url = html.unescape(match.group("url")).strip()
-        item_id = f"listing:{url}"
-        if item_id in seen_ids:
-            continue
-        seen_ids.add(item_id)
-
-        items.append(
-            {
+    def extract_items(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for match in ITEM_PATTERN.finditer(raw_html):
+            url = html.unescape(match.group("url")).strip()
+            item_id = f"listing:{url}"
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            item_type = self.strip_html(match.group("item_type")).replace("  ", " ")
+            items.append({
                 "id": item_id,
                 "section": "newsroom",
-                "type": normalize_item_type(match.group("item_type")),
-                "title": strip_html(match.group("title")),
+                "type": item_type,
+                "title": self.strip_html(match.group("title")),
                 "description": "",
-                "published_date": strip_html(match.group("published_date")),
+                "published_date": self.strip_html(match.group("published_date")),
                 "url": url,
                 "image": "",
                 "read_time": "",
                 "button_text": "Read More",
                 "external": 'target="_blank"' in match.group("anchor_tag"),
                 "source_page": source_link,
-            }
-        )
-
-    return items
-
-
-async def collect_items(source_link: str, timeout_ms: int, logger: logging.Logger) -> list[dict[str, Any]]:
-    logger.info("Starting Crawl4AI fetch for %s", source_link)
-    logger.info("Skyroot scraper is intentionally limited to page 1 of the newsroom listing.")
-    browser_config = BrowserConfig(headless=True, verbose=False)
-    run_config = CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        page_timeout=timeout_ms,
-        verbose=False,
-        wait_until="domcontentloaded",
-        delay_before_return_html=0.5,
-    )
-    async with AsyncWebCrawler(
-        config=browser_config,
-        base_directory=str(PROJECT_ROOT),
-    ) as crawler:
-        result = await crawler.arun(url=source_link, config=run_config)
-        if not result.success:
-            raise RuntimeError(f"Failed to crawl {source_link}: {result.error_message}")
-        items = extract_items(get_html_payload(result), source_link=source_link)
-        logger.info("Collected %s current item(s) from Skyroot page 1.", len(items))
+            })
         return items
 
 
-def scrape_source(
-    *,
-    source: Any,
-    timeout_ms: int,
-    logger: logging.Logger,
-) -> dict[str, Any]:
-    import asyncio
-    current_items = asyncio.run(collect_items(source.link, timeout_ms=timeout_ms, logger=logger))
-    logger.info("Collected %s current item(s).", len(current_items))
-    return {
-        "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
-        "namespace": source.folder_name,
-        "source_name": source.name,
-        "source_link": source.link,
-        "total_current_count": len(current_items),
-        "items": current_items,
-    }
+scrape_source = SkyRootScraper().scrape_source

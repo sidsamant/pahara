@@ -1,4 +1,3 @@
-import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -6,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+from src.utils.util import item_hashcode
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -377,12 +378,34 @@ def ensure_runtime_directories() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def item_hashcode(item: dict[str, Any]) -> str:
-    content = {k: item.get(k, "") for k in (
-        "title", "description", "published_date", "url",
-        "image", "read_time", "button_text", "external", "source_page",
-    )}
-    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+def migrate_db() -> None:
+    """Add any missing columns to the live database schema."""
+    with get_connection() as connection:
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "scraped_items" not in tables:
+            return
+
+        cols = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(scraped_items)").fetchall()
+        }
+        if "scrapper_type" not in cols:
+            connection.execute(
+                "ALTER TABLE scraped_items ADD COLUMN scrapper_type TEXT NOT NULL DEFAULT ''"
+            )
+        if "hashcode" not in cols:
+            connection.execute(
+                "ALTER TABLE scraped_items ADD COLUMN hashcode TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scraped_items_scrapper_type_hashcode "
+            "ON scraped_items (scrapper_type, hashcode)"
+        )
 
 
 def filter_unseen_items(scrapper_type: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:

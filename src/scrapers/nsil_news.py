@@ -1,18 +1,9 @@
-import asyncio
 import html
-import logging
-import os
 import re
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-os.environ.setdefault("CRAWL4_AI_BASE_DIRECTORY", str(PROJECT_ROOT))
-
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
-
+from .base import BaseScraper
+from .mixins import DetailEnrichmentMixin
 
 LISTING_PATTERN = re.compile(
     r'<div class="nw_bl_rw row_section">\s*'
@@ -30,141 +21,55 @@ DETAIL_BLOCK_PATTERN = re.compile(
 
 PARAGRAPH_PATTERN = re.compile(r"<p>(?P<text>.*?)</p>", re.DOTALL)
 IMAGE_PATTERN = re.compile(r'<img[^>]+src="(?P<src>[^"]+)"', re.DOTALL)
-TAG_PATTERN = re.compile(r"<[^>]+>")
-WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
-def strip_html(value: str) -> str:
-    value = html.unescape(value)
-    value = TAG_PATTERN.sub(" ", value)
-    value = WHITESPACE_PATTERN.sub(" ", value)
-    return value.strip()
+class NSILScraper(BaseScraper, DetailEnrichmentMixin):
 
-
-def get_html_payload(result: Any) -> str:
-    for field_name in ("html", "cleaned_html", "fit_html"):
-        value = getattr(result, field_name, None)
-        if value:
-            return value
-    raise RuntimeError("Crawl4AI did not return HTML content.")
-
-
-def make_run_config(timeout_ms: int) -> CrawlerRunConfig:
-    return CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        page_timeout=timeout_ms,
-        verbose=False,
-        wait_until="domcontentloaded",
-        delay_before_return_html=0.5,
-    )
-
-
-async def fetch_page_html(crawler: AsyncWebCrawler, url: str, timeout_ms: int) -> str:
-    result = await crawler.arun(url=url, config=make_run_config(timeout_ms))
-    if not result.success:
-        raise RuntimeError(f"Failed to crawl {url}: {result.error_message}")
-    return get_html_payload(result)
-
-
-def extract_listing_items(raw_html: str, source_link: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    for match in LISTING_PATTERN.finditer(raw_html):
-        url = html.unescape(match.group("url")).strip()
-        title = strip_html(match.group("title"))
-        item_id = f"news:{url}"
-        if item_id in seen_ids:
-            continue
-        seen_ids.add(item_id)
-
-        items.append(
-            {
+    def extract_items(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for match in LISTING_PATTERN.finditer(raw_html):
+            url = html.unescape(match.group("url")).strip()
+            title = self.strip_html(match.group("title"))
+            item_id = f"news:{url}"
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            items.append({
                 "id": item_id,
                 "section": "news",
                 "type": "News",
                 "title": title,
                 "description": "",
                 "published_date": match.group("published_iso").split("T", 1)[0],
-                "published_date_text": strip_html(match.group("published_text")),
+                "published_date_text": self.strip_html(match.group("published_text")),
                 "url": url,
                 "image": "",
                 "read_time": "",
                 "button_text": "Read More",
                 "external": False,
                 "source_page": source_link,
-            }
-        )
-
-    return items
-
-
-def extract_detail_fields(raw_html: str) -> dict[str, str]:
-    match = DETAIL_BLOCK_PATTERN.search(raw_html)
-    if not match:
-        return {"description": "", "image": ""}
-
-    block = match.group("detail_block")
-    paragraphs: list[str] = []
-    for paragraph_match in PARAGRAPH_PATTERN.finditer(block):
-        text = strip_html(paragraph_match.group("text"))
-        if text and text not in paragraphs:
-            paragraphs.append(text)
-
-    image_match = IMAGE_PATTERN.search(block)
-    image = image_match.group("src").strip() if image_match else ""
-    if image.startswith("/"):
-        image = f"https://www.nsilindia.co.in{image}"
-
-    return {
-        "description": " ".join(paragraphs[:3]).strip(),
-        "image": image,
-    }
-
-
-async def enrich_item(
-    crawler: AsyncWebCrawler, item: dict[str, Any], timeout_ms: int
-) -> dict[str, Any]:
-    detail_html = await fetch_page_html(crawler, item["url"], timeout_ms=timeout_ms)
-    detail_fields = extract_detail_fields(detail_html)
-    item.update(detail_fields)
-    return item
-
-
-async def collect_items(source_link: str, timeout_ms: int, logger: logging.Logger) -> list[dict[str, Any]]:
-    logger.info("Starting Crawl4AI fetch for %s", source_link)
-    logger.info("NSIL scraper is intentionally limited to page 1 of the listing.")
-    browser_config = BrowserConfig(headless=True, verbose=False)
-    async with AsyncWebCrawler(
-        config=browser_config,
-        base_directory=str(PROJECT_ROOT),
-    ) as crawler:
-        listing_html = await fetch_page_html(crawler, source_link, timeout_ms=timeout_ms)
-        items = extract_listing_items(listing_html, source_link=source_link)
-        logger.info("Collected %s listing item(s) from NSIL page 1.", len(items))
-
-        if items:
-            enriched_items = await asyncio.gather(
-                *(enrich_item(crawler, item, timeout_ms=timeout_ms) for item in items)
-            )
-            return enriched_items
-
+            })
         return items
 
+    def extract_detail_fields(self, raw_html: str) -> dict[str, Any]:
+        match = DETAIL_BLOCK_PATTERN.search(raw_html)
+        if not match:
+            return {"description": "", "image": ""}
+        block = match.group("detail_block")
+        paragraphs: list[str] = []
+        for paragraph_match in PARAGRAPH_PATTERN.finditer(block):
+            text = self.strip_html(paragraph_match.group("text"))
+            if text and text not in paragraphs:
+                paragraphs.append(text)
+        image_match = IMAGE_PATTERN.search(block)
+        image = image_match.group("src").strip() if image_match else ""
+        if image.startswith("/"):
+            image = f"https://www.nsilindia.co.in{image}"
+        return {
+            "description": " ".join(paragraphs[:3]).strip(),
+            "image": image,
+        }
 
-def scrape_source(
-    *,
-    source: Any,
-    timeout_ms: int,
-    logger: logging.Logger,
-) -> dict[str, Any]:
-    current_items = asyncio.run(collect_items(source.link, timeout_ms=timeout_ms, logger=logger))
-    logger.info("Collected %s current item(s).", len(current_items))
-    return {
-        "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
-        "namespace": source.folder_name,
-        "source_name": source.name,
-        "source_link": source.link,
-        "total_current_count": len(current_items),
-        "items": current_items,
-    }
+
+scrape_source = NSILScraper().scrape_source
