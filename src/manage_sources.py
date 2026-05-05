@@ -2,7 +2,7 @@ import argparse
 import json
 
 from src.database import ensure_runtime_directories, get_all_sources, ensure_source, set_source_enabled
-from scrapers.x_latest_posts import validate_x_source_sync
+from src.scrapers.x_latest_posts import validate_x_source_sync
 
 
 def build_parser() -> argparse.ArgumentParser:
