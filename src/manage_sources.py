@@ -1,6 +1,9 @@
 import argparse
 import json
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.database import ensure_runtime_directories, get_all_sources, ensure_source, set_source_enabled
 from src.scrapers.x_latest_posts import validate_x_source_sync
 

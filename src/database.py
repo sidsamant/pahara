@@ -1,24 +1,51 @@
+"""
+Database access layer for the crawl4ai crawler.
+
+Backed by PostgreSQL. Connection URL is read from the DATABASE_URL environment
+variable (e.g. "postgresql://user:password@localhost:5432/crawl4ai").
+
+All public functions open their own connection, commit on success, and roll
+back + close on any exception. Callers use the context manager pattern:
+
+    with get_connection() as conn:
+        rows = conn.execute("SELECT ...", (...)).fetchall()
+
+Row dictionaries are standard Python dicts (via RealDictCursor), so field
+access is identical to the previous sqlite3.Row style: row["field_name"].
+"""
+
 import json
-import sqlite3
+import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import psycopg2
+import psycopg2.extras
+
 from src.utils.util import item_hashcode
 
 
+# ---------------------------------------------------------------------------
+# Directory constants (database is now remote — no DATA_DIR or DB_PATH)
+# ---------------------------------------------------------------------------
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
-SOURCES_DIR = PROJECT_ROOT / ".output" / "sources"
-LOGS_DIR = PROJECT_ROOT / ".logs"
+SOURCES_DIR  = PROJECT_ROOT / ".output" / "sources"
+LOGS_DIR     = PROJECT_ROOT / ".logs"
 RUN_RESULTS_DIR = PROJECT_ROOT / ".output" / "runs"
-DB_PATH = DATA_DIR / "crawler.sqlite3"
-CONFIG_DIR = PROJECT_ROOT / "src" / "config"
+CONFIG_DIR   = PROJECT_ROOT / "src" / "config"
+
 # Config file used to declare which X profiles should be treated as sources.
 X_TARGETS_CONFIG_PATH = CONFIG_DIR / "x_targets.json"
 
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SourceRecord:
@@ -31,6 +58,67 @@ class SourceRecord:
     created_at_utc: str
     updated_at_utc: str
 
+
+# ---------------------------------------------------------------------------
+# Internal connection wrapper
+# ---------------------------------------------------------------------------
+
+class _Conn:
+    """
+    Thin wrapper around a psycopg2 connection that exposes the same
+    .execute(sql, params) interface used by sqlite3.Connection.
+
+    It automatically converts sqlite3-style "?" placeholders to the
+    psycopg2-style "%s" placeholders so the SQL strings in this module
+    do not need to change.
+    """
+
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    def execute(self, sql: str, params: Any = ()) -> Any:
+        # Replace sqlite3 "?" placeholders with psycopg2 "%s" placeholders.
+        pg_sql = sql.replace("?", "%s")
+        cur = self._conn.cursor()
+        cur.execute(pg_sql, params)
+        return cur
+
+
+# ---------------------------------------------------------------------------
+# Connection factory
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def get_connection():
+    """
+    Yield a _Conn wrapping a psycopg2 connection.
+
+    Commits on clean exit, rolls back + re-raises on any exception,
+    and always closes the underlying connection.
+
+    DATABASE_URL must be set in the environment, for example:
+        postgresql://user:password@localhost:5432/crawl4ai
+    """
+    raw_conn = psycopg2.connect(
+        os.environ["DATABASE_URL"],
+        # RealDictCursor returns rows as plain Python dicts, so row["field"]
+        # works exactly like it did with sqlite3.Row.
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
+    conn = _Conn(raw_conn)
+    try:
+        yield conn
+        raw_conn.commit()
+    except Exception:
+        raw_conn.rollback()
+        raise
+    finally:
+        raw_conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -52,98 +140,26 @@ def build_source_folder_name(source_id: int, source_name: str) -> str:
     return f"{source_id}_{camel_case_name(short_source_name(source_name))}"
 
 
-def get_connection() -> sqlite3.Connection:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
-
-
-# def init_db() -> None:
-#     with get_connection() as connection:
-#         connection.executescript(
-#             """
-#             CREATE TABLE IF NOT EXISTS sources (
-#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-#                 name TEXT NOT NULL UNIQUE,
-#                 link TEXT NOT NULL UNIQUE,
-#                 folder_name TEXT NOT NULL UNIQUE,
-#                 scraper_key TEXT NOT NULL,
-#                 enabled INTEGER NOT NULL DEFAULT 1,
-#                 created_at_utc TEXT NOT NULL,
-#                 updated_at_utc TEXT NOT NULL
-#             );
-
-#             CREATE TABLE IF NOT EXISTS runs (
-#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-#                 started_at_utc TEXT NOT NULL,
-#                 finished_at_utc TEXT,
-#                 status TEXT NOT NULL,
-#                 log_dir TEXT NOT NULL,
-#                 results_path TEXT,
-#                 total_sources INTEGER NOT NULL DEFAULT 0,
-#                 succeeded_sources INTEGER NOT NULL DEFAULT 0,
-#                 failed_sources INTEGER NOT NULL DEFAULT 0
-#             );
-
-#             CREATE TABLE IF NOT EXISTS run_sources (
-#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-#                 run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-#                 source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-#                 started_at_utc TEXT NOT NULL,
-#                 finished_at_utc TEXT,
-#                 status TEXT NOT NULL,
-#                 log_path TEXT NOT NULL,
-#                 output_path TEXT,
-#                 total_current_count INTEGER NOT NULL DEFAULT 0,
-#                 returned_count INTEGER NOT NULL DEFAULT 0,
-#                 error_text TEXT,
-#                 UNIQUE (run_id, source_id)
-#             );
-
-#             CREATE TABLE IF NOT EXISTS scraped_items (
-#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-#                 source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-#                 run_source_id INTEGER REFERENCES run_sources(id) ON DELETE SET NULL,
-#                 item_id TEXT NOT NULL,
-#                 section TEXT NOT NULL,
-#                 item_type TEXT NOT NULL,
-#                 scrapper_type TEXT NOT NULL DEFAULT '',
-#                 title TEXT NOT NULL,
-#                 description TEXT NOT NULL,
-#                 published_date TEXT NOT NULL,
-#                 url TEXT NOT NULL,
-#                 image TEXT NOT NULL,
-#                 read_time TEXT NOT NULL,
-#                 button_text TEXT NOT NULL,
-#                 external INTEGER NOT NULL DEFAULT 0,
-#                 source_page TEXT NOT NULL,
-#                 raw_json TEXT NOT NULL,
-#                 hashcode TEXT NOT NULL DEFAULT '',
-#                 first_seen_at_utc TEXT NOT NULL,
-#                 last_seen_at_utc TEXT NOT NULL,
-#                 UNIQUE (source_id, item_id)
-#             );
-#             CREATE UNIQUE INDEX IF NOT EXISTS idx_scraped_items_scrapper_type_hashcode ON scraped_items (scrapper_type, hashcode);
-#             """
-#         )
-
-
-def _row_to_source(row: sqlite3.Row) -> SourceRecord:
+def _row_to_source(row: dict) -> SourceRecord:
     return SourceRecord(
         id=row["id"],
         name=row["name"],
         link=row["link"],
         folder_name=row["folder_name"],
         scraper_key=row["scraper_key"],
+        # PostgreSQL returns INTEGER columns as Python int; cast to bool for clarity.
         enabled=bool(row["enabled"]),
         created_at_utc=row["created_at_utc"],
         updated_at_utc=row["updated_at_utc"],
     )
 
 
+# ---------------------------------------------------------------------------
+# Source management
+# ---------------------------------------------------------------------------
+
 def ensure_source(name: str, link: str, scraper_key: str, enabled: bool = True) -> SourceRecord:
+    """Insert or update a source row and return it."""
     now = utc_now_iso()
     with get_connection() as connection:
         existing = connection.execute(
@@ -152,38 +168,44 @@ def ensure_source(name: str, link: str, scraper_key: str, enabled: bool = True) 
         ).fetchone()
 
         if existing:
-            source_id = int(existing["id"])
+            source_id  = int(existing["id"])
             folder_name = existing["folder_name"] or build_source_folder_name(source_id, name)
             connection.execute(
                 """
                 UPDATE sources
-                SET name = ?, link = ?, folder_name = ?, scraper_key = ?, enabled = ?, updated_at_utc = ?
+                SET name = ?, link = ?, folder_name = ?, scraper_key = ?,
+                    enabled = ?, updated_at_utc = ?
                 WHERE id = ?
                 """,
                 (name, link, folder_name, scraper_key, int(enabled), now, source_id),
             )
         else:
+            # INSERT and get the new auto-generated id in one round-trip via RETURNING.
             cursor = connection.execute(
                 """
-                INSERT INTO sources (name, link, folder_name, scraper_key, enabled, created_at_utc, updated_at_utc)
+                INSERT INTO sources
+                    (name, link, folder_name, scraper_key, enabled, created_at_utc, updated_at_utc)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
                 """,
                 (name, link, "", scraper_key, int(enabled), now, now),
             )
-            source_id = int(cursor.lastrowid)
+            source_id = int(cursor.fetchone()["id"])
             folder_name = build_source_folder_name(source_id, name)
             connection.execute(
                 "UPDATE sources SET folder_name = ? WHERE id = ?",
                 (folder_name, source_id),
             )
 
-        row = connection.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+        row = connection.execute(
+            "SELECT * FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
         return _row_to_source(row)
 
 
 def normalize_x_source_link(value: str) -> str:
-    # Source rows for X should normalize to the profile root so duplicates like
-    # https://x.com/OpenAI and https://x.com/OpenAI/with_replies map to one source.
+    # Normalise X profile URLs so https://x.com/OpenAI and
+    # https://x.com/OpenAI/with_replies map to the same source row.
     parsed = urlparse(value.strip())
     path_parts = [part for part in parsed.path.split("/") if part]
     if not path_parts:
@@ -195,15 +217,12 @@ def normalize_x_source_link(value: str) -> str:
 
 
 def load_x_targets_config() -> dict[str, Any]:
-    # Missing config is treated as "no X accounts configured" so the rest of the
-    # app keeps working without forcing every user to adopt the X scraper.
     if not X_TARGETS_CONFIG_PATH.exists():
         return {"defaults": {}, "auth": {}, "accounts": []}
 
     payload = json.loads(X_TARGETS_CONFIG_PATH.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"{X_TARGETS_CONFIG_PATH} must contain a JSON object.")
-    # These defaults keep downstream code simple by avoiding repeated existence checks.
     payload.setdefault("defaults", {})
     payload.setdefault("auth", {})
     payload.setdefault("accounts", [])
@@ -211,10 +230,7 @@ def load_x_targets_config() -> dict[str, Any]:
 
 
 def sync_configured_x_sources() -> None:
-    # The X scraper is config-driven: each configured account becomes one source row.
-    # This keeps the existing multi-source runner unchanged while allowing many X
-    # handles to share a single scraper implementation.
-    payload = load_x_targets_config()
+    payload  = load_x_targets_config()
     accounts = payload.get("accounts", [])
     if not isinstance(accounts, list):
         raise ValueError(f"{X_TARGETS_CONFIG_PATH} field 'accounts' must be a JSON array.")
@@ -222,14 +238,11 @@ def sync_configured_x_sources() -> None:
     for account in accounts:
         if not isinstance(account, dict):
             raise ValueError(f"{X_TARGETS_CONFIG_PATH} entries in 'accounts' must be JSON objects.")
-
         raw_url = str(account.get("url", "")).strip()
         if not raw_url:
             raise ValueError("Each configured X account must include a non-empty 'url'.")
-
         normalized_url = normalize_x_source_link(raw_url)
         handle = normalized_url.rsplit("/", 1)[-1]
-        # If the user does not supply a name, derive a predictable source name from the handle.
         source_name = str(account.get("name") or f"X {handle}").strip()
         ensure_source(
             name=source_name,
@@ -237,40 +250,6 @@ def sync_configured_x_sources() -> None:
             scraper_key="x_latest_posts",
             enabled=bool(account.get("enabled", True)),
         )
-
-
-# def seed_default_sources() -> None:
-#     ensure_source(
-#         name="Bellatrix Aerospace Updates",
-#         link="https://bellatrix.aero/updates",
-#         scraper_key="bellatrix_updates",
-#         enabled=True,
-#     )
-#     ensure_source(
-#         name="Digantara Newsroom",
-#         link="https://www.digantara.co.in/newsroom",
-#         scraper_key="digantara_newsroom",
-#         enabled=True,
-#     )
-#     ensure_source(
-#         name="Skyroot Newsroom",
-#         link="https://www.skyroot.in/newsroom",
-#         scraper_key="skyroot_newsroom",
-#         enabled=True,
-#     )
-#     ensure_source(
-#         name="NSIL News",
-#         link="https://www.nsilindia.co.in/news",
-#         scraper_key="nsil_news",
-#         enabled=True,
-#     )
-#     ensure_source(
-#         name="Pixxel Newsroom",
-#         link="https://www.pixxel.space/newsroom",
-#         scraper_key="pixxel_newsroom",
-#         enabled=True,
-#     )
-#     sync_configured_x_sources()
 
 
 def get_enabled_sources() -> list[SourceRecord]:
@@ -283,7 +262,9 @@ def get_enabled_sources() -> list[SourceRecord]:
 
 def get_all_sources() -> list[SourceRecord]:
     with get_connection() as connection:
-        rows = connection.execute("SELECT * FROM sources ORDER BY id ASC").fetchall()
+        rows = connection.execute(
+            "SELECT * FROM sources ORDER BY id ASC"
+        ).fetchall()
         return [_row_to_source(row) for row in rows]
 
 
@@ -295,16 +276,22 @@ def set_source_enabled(source_id: int, enabled: bool) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Run tracking
+# ---------------------------------------------------------------------------
+
 def create_run(log_dir: Path, total_sources: int) -> int:
     with get_connection() as connection:
+        # RETURNING id avoids a separate SELECT to get the auto-generated PK.
         cursor = connection.execute(
             """
             INSERT INTO runs (started_at_utc, status, log_dir, total_sources)
             VALUES (?, ?, ?, ?)
+            RETURNING id
             """,
             (utc_now_iso(), "running", str(log_dir), total_sources),
         )
-        return int(cursor.lastrowid)
+        return int(cursor.fetchone()["id"])
 
 
 def finalize_run(
@@ -318,7 +305,8 @@ def finalize_run(
         connection.execute(
             """
             UPDATE runs
-            SET finished_at_utc = ?, status = ?, succeeded_sources = ?, failed_sources = ?, results_path = ?
+            SET finished_at_utc = ?, status = ?,
+                succeeded_sources = ?, failed_sources = ?, results_path = ?
             WHERE id = ?
             """,
             (
@@ -338,10 +326,11 @@ def create_run_source(run_id: int, source_id: int, log_path: Path) -> int:
             """
             INSERT INTO run_sources (run_id, source_id, started_at_utc, status, log_path)
             VALUES (?, ?, ?, ?, ?)
+            RETURNING id
             """,
             (run_id, source_id, utc_now_iso(), "running", str(log_path)),
         )
-        return int(cursor.lastrowid)
+        return int(cursor.fetchone()["id"])
 
 
 def finalize_run_source(
@@ -356,7 +345,8 @@ def finalize_run_source(
         connection.execute(
             """
             UPDATE run_sources
-            SET finished_at_utc = ?, status = ?, output_path = ?, total_current_count = ?, returned_count = ?, error_text = ?
+            SET finished_at_utc = ?, status = ?, output_path = ?,
+                total_current_count = ?, returned_count = ?, error_text = ?
             WHERE id = ?
             """,
             (
@@ -371,29 +361,54 @@ def finalize_run_source(
         )
 
 
+# ---------------------------------------------------------------------------
+# Runtime directories (database is remote; only local filesystem paths here)
+# ---------------------------------------------------------------------------
+
 def ensure_runtime_directories() -> None:
-    # config/ is created alongside the existing runtime directories so the sample
-    # X config can live inside the project without manual setup.
-    for path in (DATA_DIR, SOURCES_DIR, LOGS_DIR, RUN_RESULTS_DIR, CONFIG_DIR):
+    for path in (SOURCES_DIR, LOGS_DIR, RUN_RESULTS_DIR, CONFIG_DIR):
         path.mkdir(parents=True, exist_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# Schema migrations
+# ---------------------------------------------------------------------------
+
 def migrate_db() -> None:
-    """Add any missing columns to the live database schema."""
+    """
+    Add any columns that are missing from the live schema.
+
+    Uses information_schema (standard SQL) instead of the SQLite-specific
+    sqlite_master table and PRAGMA table_info().
+    """
     with get_connection() as connection:
+        # Check whether the scraped_items table exists at all.
         tables = {
-            row["name"]
+            row["table_name"]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                """
             ).fetchall()
         }
         if "scraped_items" not in tables:
             return
 
+        # Fetch existing column names so we can add only the missing ones.
         cols = {
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(scraped_items)").fetchall()
+            row["column_name"]
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'scraped_items'
+                  AND table_schema = 'public'
+                """
+            ).fetchall()
         }
+
         if "scrapper_type" not in cols:
             connection.execute(
                 "ALTER TABLE scraped_items ADD COLUMN scrapper_type TEXT NOT NULL DEFAULT ''"
@@ -402,88 +417,107 @@ def migrate_db() -> None:
             connection.execute(
                 "ALTER TABLE scraped_items ADD COLUMN hashcode TEXT NOT NULL DEFAULT ''"
             )
+
+        # CREATE INDEX IF NOT EXISTS is standard SQL and works in PostgreSQL.
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_scraped_items_scrapper_type_hashcode "
-            "ON scraped_items (scrapper_type, hashcode)"
+            """
+            CREATE INDEX IF NOT EXISTS idx_scraped_items_scrapper_type_hashcode
+            ON scraped_items (scrapper_type, hashcode)
+            """
         )
 
 
+# ---------------------------------------------------------------------------
+# Deduplication
+# ---------------------------------------------------------------------------
+
 def filter_unseen_items(scrapper_type: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return only items whose URL hash has not been stored before."""
     if not items:
         return []
+
     hashes = [item_hashcode(item) for item in items]
-    placeholders = ", ".join("?" for _ in hashes)
+
     with get_connection() as connection:
+        # ANY(%s) with a Python list is idiomatic psycopg2 and avoids building a
+        # dynamic "IN (?, ?, ...)" placeholder string.
         rows = connection.execute(
-            f"SELECT hashcode FROM scraped_items WHERE scrapper_type = ? AND hashcode IN ({placeholders})",
-            (scrapper_type, *hashes),
+            """
+            SELECT hashcode
+            FROM scraped_items
+            WHERE scrapper_type = ? AND hashcode = ANY(?)
+            """,
+            (scrapper_type, hashes),
         ).fetchall()
+
     seen = {row["hashcode"] for row in rows}
     return [item for item, h in zip(items, hashes) if h not in seen]
 
 
-def upsert_scraped_items(source_id: int, run_source_id: int, scraper_key: str, items: list[dict[str, Any]]) -> dict[str, int]:
-    # The scraper state file prevents repeat returns across normal runs, but we also
-    # persist items into SQLite. This helper makes SQLite idempotent by inserting new
-    # items once and refreshing existing rows when the same item is seen again.
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+def upsert_scraped_items(
+    source_id: int,
+    run_source_id: int,
+    scraper_key: str,
+    items: list[dict[str, Any]],
+) -> dict[str, int]:
+    """
+    Insert new scraped items; update mutable fields if an item was seen before.
+
+    Returns {"inserted": N, "updated": M}.
+    """
     if not items:
         return {"inserted": 0, "updated": 0}
 
     item_ids = [str(item["id"]) for item in items]
-    placeholders = ", ".join("?" for _ in item_ids)
     now = utc_now_iso()
 
     with get_connection() as connection:
-        # Preload existing keys so we can report how many rows were inserted vs updated.
+        # Fetch all item_ids that already exist so we can report insert vs update.
         existing_rows = connection.execute(
-            f"SELECT item_id FROM scraped_items WHERE source_id = ? AND item_id IN ({placeholders})",
-            (source_id, *item_ids),
+            """
+            SELECT item_id
+            FROM scraped_items
+            WHERE source_id = ? AND item_id = ANY(?)
+            """,
+            (source_id, item_ids),
         ).fetchall()
         existing_ids = {row["item_id"] for row in existing_rows}
 
         for item in items:
             raw_json = json.dumps(item, ensure_ascii=False, sort_keys=True)
-            hashcode = item_hashcode(item)
+            hashcode  = item_hashcode(item)
+
+            # ON CONFLICT ... DO UPDATE is standard SQL (PostgreSQL 9.5+).
+            # "excluded" is the special alias for the row that failed to insert.
             connection.execute(
                 """
                 INSERT INTO scraped_items (
-                    source_id,
-                    run_source_id,
-                    item_id,
-                    section,
-                    item_type,
-                    scrapper_type,
-                    title,
-                    description,
-                    published_date,
-                    url,
-                    image,
-                    read_time,
-                    button_text,
-                    external,
-                    source_page,
-                    raw_json,
-                    hashcode,
-                    first_seen_at_utc,
-                    last_seen_at_utc
+                    source_id, run_source_id, item_id, section, item_type,
+                    scrapper_type, title, description, published_date, url,
+                    image, read_time, button_text, external, source_page,
+                    raw_json, hashcode, first_seen_at_utc, last_seen_at_utc
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source_id, item_id) DO UPDATE SET
-                    run_source_id = excluded.run_source_id,
-                    section = excluded.section,
-                    item_type = excluded.item_type,
-                    scrapper_type = excluded.scrapper_type,
-                    title = excluded.title,
-                    description = excluded.description,
-                    published_date = excluded.published_date,
-                    url = excluded.url,
-                    image = excluded.image,
-                    read_time = excluded.read_time,
-                    button_text = excluded.button_text,
-                    external = excluded.external,
-                    source_page = excluded.source_page,
-                    raw_json = excluded.raw_json,
-                    hashcode = excluded.hashcode,
+                    run_source_id    = excluded.run_source_id,
+                    section          = excluded.section,
+                    item_type        = excluded.item_type,
+                    scrapper_type    = excluded.scrapper_type,
+                    title            = excluded.title,
+                    description      = excluded.description,
+                    published_date   = excluded.published_date,
+                    url              = excluded.url,
+                    image            = excluded.image,
+                    read_time        = excluded.read_time,
+                    button_text      = excluded.button_text,
+                    external         = excluded.external,
+                    source_page      = excluded.source_page,
+                    raw_json         = excluded.raw_json,
+                    hashcode         = excluded.hashcode,
                     last_seen_at_utc = excluded.last_seen_at_utc
                 """,
                 (
@@ -509,6 +543,6 @@ def upsert_scraped_items(source_id: int, run_source_id: int, scraper_key: str, i
                 ),
             )
 
-    inserted = sum(1 for item_id in item_ids if item_id not in existing_ids)
-    updated = len(item_ids) - inserted
+    inserted = sum(1 for iid in item_ids if iid not in existing_ids)
+    updated  = len(item_ids) - inserted
     return {"inserted": inserted, "updated": updated}

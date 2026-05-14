@@ -12,8 +12,9 @@ This project uses Python, `crawl4ai` plus SQLite to run all enabled newsroom sou
 7. Ability to Log important milestones while scraping, statuses, stats like counts and errors and failures in files.
 
 ## Directory Layout
-- Documentation on architecture and technical design can be found in the folder `docs` and start from the root document `docs\COMMON_SCRAPER_RULES.md`
-- SQLite database: `.\data\crawler.sqlite3`
+- Documentation on architecture and technical design can be found in the `docs` folder.
+  - `docs\AGENTS.md` — Scout, Forge, and Sentinel agent pipeline (source discovery + scraper generation)
+- PostgreSQL database — connection via `DATABASE_URL` env var (see `.env.example`).
 - Per-run logs: `.\.logs\<timestamp>\`
 - Outputs: `.\.output\`
 - Source code exists in `.\src` folder

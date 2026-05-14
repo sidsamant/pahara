@@ -1,5 +1,9 @@
 import argparse
 
+# Load DATABASE_URL from a local .env file before any database import.
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.database import ensure_runtime_directories, get_connection, migrate_db
 from src.utils.util import ScrapperType, item_hashcode, scrapper_type_from_item_id
 
@@ -12,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "migrate",
-        help="Apply any pending schema migrations to the SQLite database.",
+        help="Apply any pending schema migrations to the PostgreSQL database.",
     )
     subparsers.add_parser(
         "backfill",

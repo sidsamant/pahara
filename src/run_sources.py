@@ -6,6 +6,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Load DATABASE_URL (and any other variables) from a local .env file if present.
+# This must happen before any database import so the env var is available.
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.database import (
     LOGS_DIR,
     RUN_RESULTS_DIR,

@@ -1,1 +1,14 @@
 crawl4ai>=0.8.5
+
+# Anthropic SDK — used by the Scout, Forge, and Sentinel agents.
+anthropic>=0.40.0
+
+# PostgreSQL driver.
+# psycopg2-binary bundles the libpq C library so no system-level install is
+# needed. For production deployments, swap this for plain "psycopg2>=2.9"
+# (which requires libpq-dev to be installed on the OS) to avoid the binary
+# package's slower release cadence.
+psycopg2-binary>=2.9
+
+# Loads DATABASE_URL (and other env vars) from a local .env file at startup.
+python-dotenv>=1.0
