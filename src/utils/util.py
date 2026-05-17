@@ -14,8 +14,11 @@ class ScrapperType(str, Enum):
     """
 
     BELLATRIX_UPDATES = "bellatrix_updates"
+    DHRUVA_SPACE = "dhruva_space"
     DIGANTARA_NEWSROOM = "digantara_newsroom"
+    MANASTU_SPACE = "manastu_space"
     NSIL_NEWS = "nsil_news"
+    PIERSIGHT = "piersight"
     PIXXEL_NEWSROOM = "pixxel_newsroom"
     SATSURE_NEWSROOM = "satsure_newsroom"
     SKYROOT_NEWSROOM = "skyroot_newsroom"

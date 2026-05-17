@@ -25,12 +25,36 @@ def build_parser() -> argparse.ArgumentParser:
             "Safe to re-run; only rows with at least one empty field are touched."
         ),
     )
+    subparsers.add_parser(
+        "resync-sequences",
+        help=(
+            "Reset all BIGSERIAL sequences to max(id)+1. Run this after bulk-importing "
+            "rows with explicit ids (e.g. after a SQLite→PostgreSQL migration)."
+        ),
+    )
     return parser
 
 
 def cmd_migrate() -> None:
     migrate_db()
     print("Migration complete.")
+
+
+_SEQUENCE_TABLES = [
+    "runs", "sources", "run_sources", "scraped_items",
+    "discovery_targets", "scraper_reviews",
+]
+
+
+def cmd_resync_sequences() -> None:
+    """Advance each BIGSERIAL sequence to max(id)+1 so future INSERTs don't collide."""
+    with get_connection() as conn:
+        for table in _SEQUENCE_TABLES:
+            row = conn.execute(f"SELECT COALESCE(MAX(id), 0) AS max_id FROM {table}").fetchone()
+            next_val = row["max_id"] + 1
+            conn.execute(f"SELECT setval('{table}_id_seq', {next_val}, false)")
+            print(f"  {table:20s}  next id = {next_val}")
+    print("Sequences resynced.")
 
 
 def cmd_backfill() -> None:
@@ -95,6 +119,10 @@ def main() -> int:
 
     if args.command == "backfill":
         cmd_backfill()
+        return 0
+
+    if args.command == "resync-sequences":
+        cmd_resync_sequences()
         return 0
 
     raise ValueError(f"Unsupported command: {args.command}")
