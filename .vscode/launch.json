@@ -1,0 +1,90 @@
+﻿{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false,
+      "subProcess": true
+    },
+    {
+      "name": "Crawl4AI: Run Sources",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.run_sources",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "args": ["--timeout-ms", "${input:timeoutMs}"],
+      "justMyCode": false,
+      "subProcess": true
+    },
+    {
+      "name": "Crawl4AI: Run Sources (All Items)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.run_sources",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "args": ["--all-items", "--timeout-ms", "${input:timeoutMs}"],
+      "justMyCode": false,
+      "subProcess": true
+    },
+    {
+      "name": "Crawl4AI: List Sources",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.manage_sources",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "args": ["list"],
+      "justMyCode": false,
+      "subProcess": true
+    },
+    {
+      "name": "Crawl4AI: Validate X Auth",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.manage_sources",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "args": ["validate-x-auth", "--url", "${input:xProfileUrl}", "--timeout-ms", "${input:timeoutMs}"],
+      "justMyCode": false,
+      "subProcess": true
+    },
+    {
+      "name": "Crawl4AI: DB Migrate",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.setup",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "args": ["migrate"],
+      "justMyCode": false,
+      "subProcess": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "timeoutMs",
+      "type": "promptString",
+      "description": "Crawl4AI timeout in milliseconds",
+      "default": "90000"
+    },
+    {
+      "id": "xProfileUrl",
+      "type": "promptString",
+      "description": "X profile URL to validate",
+      "default": "https://x.com/OpenAI"
+    }
+  ]
+}
