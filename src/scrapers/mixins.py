@@ -11,7 +11,8 @@ _DATE_LONG_PATTERN = re.compile(
     r"\b(January|February|March|April|May|June|July|August|September|October|November|December)"
     r"\s+(\d{1,2}),\s+(\d{4})\b"
 )
-_WHITESPACE_PATTERN = re.compile(r"\s+")
+_NEWLINE_PATTERN = re.compile(r"[\r\n]+")
+_CONSECUTIVE_SPACE_PATTERN = re.compile(r" {2,}")
 
 
 class CrawlResultItemMixin:
@@ -20,6 +21,7 @@ class CrawlResultItemMixin:
     result_item_id_prefix = "press_release"
     result_item_section = "press_release"
     result_item_type = "Press Release"
+    result_item_button_text = "Read More"
     result_title_metadata_keys = ("title",)
     result_ignored_titles: tuple[str, ...] = ()
     result_description_metadata_keys = ("description",)
@@ -148,7 +150,8 @@ class CrawlResultItemMixin:
         return published_date
 
     def _result_cleaned_html(self, result: Any) -> str:
-        return _WHITESPACE_PATTERN.sub("", result.cleaned_html or "")
+        without_newlines = _NEWLINE_PATTERN.sub(" ", result.cleaned_html or "")
+        return _CONSECUTIVE_SPACE_PATTERN.sub(" ", without_newlines).strip()
 
     def result_to_item(self, result: Any, source_link: str) -> dict[str, Any] | None:
         logger = self._result_item_logger()
@@ -184,7 +187,7 @@ class CrawlResultItemMixin:
             "url": url,
             "image": image,
             "read_time": "",
-            "button_text": "Read More",
+            "button_text": self.result_item_button_text,
             "external": False,
             "source_page": source_link,
             "cleaned_html": self._result_cleaned_html(result),

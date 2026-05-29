@@ -1,75 +1,100 @@
-import html
-import re
+import logging
 from typing import Any
+from urllib.parse import urldefrag
 
-from .base import BaseScraper
-from .mixins import DetailEnrichmentMixin
-
-LISTING_PATTERN = re.compile(
-    r'<div class="nw_bl_rw row_section">\s*'
-    r'<img src="(?P<icon>[^"]+)">\s*'
-    r'<h3>\s*'
-    r'<a href="(?P<url>[^"]+)">(?P<title>.*?)</a>.*?'
-    r'<span class="date-display-single"[^>]*content="(?P<published_iso>[^"]+)"[^>]*>(?P<published_text>.*?)</span>',
-    re.DOTALL,
+from crawl4ai import (
+    AsyncWebCrawler,
+    CacheMode,
+    ContentTypeFilter,
+    CrawlerRunConfig,
+    DefaultMarkdownGenerator,
+    FilterChain,
+    URLPatternFilter,
 )
+from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 
-DETAIL_BLOCK_PATTERN = re.compile(
-    r'<div class="section news_details">(?P<detail_block>.*?)</div>\s*</div>\s*</section>',
-    re.DOTALL,
-)
-
-PARAGRAPH_PATTERN = re.compile(r"<p>(?P<text>.*?)</p>", re.DOTALL)
-IMAGE_PATTERN = re.compile(r'<img[^>]+src="(?P<src>[^"]+)"', re.DOTALL)
+from .base import BaseScraper, PROJECT_ROOT
+from .mixins import CrawlResultItemMixin
 
 
-class NSILScraper(BaseScraper, DetailEnrichmentMixin):
+def _normalise(url: str) -> str:
+    return urldefrag(url.rstrip("/"))[0]
+
+
+class NSILScraper(CrawlResultItemMixin, BaseScraper):
+    result_item_id_prefix = "news"
+    result_item_section = "news"
+    result_item_type = "News"
+    result_title_metadata_keys = ("og:title", "title")
+    result_description_metadata_keys = ("og:description", "description")
+    result_description_skip_prefixes = ("#", "!")
+    result_description_min_length = 30
 
     def extract_items(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
+        # Not used; collect_items is overridden to use deep crawl.
+        return []
+
+    async def collect_items(
+        self, source_link: str, timeout_ms: int, logger: logging.Logger
+    ) -> list[dict[str, Any]]:
+        logger.info("Starting deep crawl for %s", source_link)
+
+        filter_chain = FilterChain([
+            URLPatternFilter(patterns=["*/news-details/*"]),
+            ContentTypeFilter(allowed_types=["text/html"]),
+        ])
+
+        config = CrawlerRunConfig(
+            deep_crawl_strategy=BFSDeepCrawlStrategy(
+                max_depth=1,
+                include_external=False,
+                filter_chain=filter_chain,
+            ),
+            scraping_strategy=LXMLWebScrapingStrategy(),
+            markdown_generator=DefaultMarkdownGenerator(),
+            cache_mode=CacheMode.BYPASS,
+            page_timeout=timeout_ms,
+            delay_before_return_html=1.0,
+            wait_until="domcontentloaded",
+            verbose=False,
+        )
+
+        listing_url = _normalise(source_link)
         items: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
-        for match in LISTING_PATTERN.finditer(raw_html):
-            url = html.unescape(match.group("url")).strip()
-            title = self.strip_html(match.group("title"))
-            item_id = f"news:{url}"
-            if item_id in seen_ids:
-                continue
-            seen_ids.add(item_id)
-            items.append({
-                "id": item_id,
-                "section": "news",
-                "type": "News",
-                "title": title,
-                "description": "",
-                "published_date": match.group("published_iso").split("T", 1)[0],
-                "published_date_text": self.strip_html(match.group("published_text")),
-                "url": url,
-                "image": "",
-                "read_time": "",
-                "button_text": "Read More",
-                "external": False,
-                "source_page": source_link,
-            })
-        return items
 
-    def extract_detail_fields(self, raw_html: str) -> dict[str, Any]:
-        match = DETAIL_BLOCK_PATTERN.search(raw_html)
-        if not match:
-            return {"description": "", "image": ""}
-        block = match.group("detail_block")
-        paragraphs: list[str] = []
-        for paragraph_match in PARAGRAPH_PATTERN.finditer(block):
-            text = self.strip_html(paragraph_match.group("text"))
-            if text and text not in paragraphs:
-                paragraphs.append(text)
-        image_match = IMAGE_PATTERN.search(block)
-        image = image_match.group("src").strip() if image_match else ""
-        if image.startswith("/"):
-            image = f"https://www.nsilindia.co.in{image}"
-        return {
-            "description": " ".join(paragraphs[:3]).strip(),
-            "image": image,
-        }
+        async with AsyncWebCrawler(
+            config=self._browser_config(), base_directory=str(PROJECT_ROOT)
+        ) as crawler:
+            results = await crawler.arun(source_link, config=config)
+            logger.info("Deep crawl returned %s result(s) total.", len(results))
+            for result in results:
+                depth = result.metadata.get("depth", 0)
+                normalised = _normalise(result.url)
+                logger.debug("Result depth=%s url=%s success=%s", depth, result.url, result.success)
+                if normalised == listing_url:
+                    logger.info("Skipping listing page URL: %s", result.url)
+                    continue
+                if not result.success:
+                    logger.warning("Failed to crawl %s: %s", result.url, result.error_message)
+                    continue
+
+                item = self.result_to_item(result, source_link)
+                if not item or item["id"] in seen_ids:
+                    continue
+                seen_ids.add(item["id"])
+                items.append(item)
+
+        logger.info("Collected %s item(s) from deep crawl.", len(items))
+        return self._sort_items(items)
+
+    def _sort_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            items,
+            key=lambda item: (item.get("published_date") or "", item.get("title") or ""),
+            reverse=True,
+        )
 
 
 scrape_source = NSILScraper().scrape_source

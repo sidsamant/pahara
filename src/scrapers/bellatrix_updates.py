@@ -1,117 +1,99 @@
-import html
-import re
-from datetime import datetime
+import logging
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urldefrag
 
-from .base import BaseScraper
-from .mixins import DetailEnrichmentMixin
-
-POST_PATTERN = re.compile(
-    r'data-framer-name="Post".*?'
-    r'data-framer-name="Title".*?<a[^>]+href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>.*?'
-    r'data-framer-name="Date".*?<p[^>]*>(?P<published_date>.*?)</p>.*?'
-    r'data-framer-name="Preload"[^>]+href="(?P<preload_href>[^"]+)".*?'
-    r'<img[^>]+src="(?P<image>https://[^"]+)"',
-    re.DOTALL,
+from crawl4ai import (
+    AsyncWebCrawler,
+    CacheMode,
+    ContentTypeFilter,
+    CrawlerRunConfig,
+    DefaultMarkdownGenerator,
+    FilterChain,
+    URLPatternFilter,
 )
+from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 
-DETAIL_CONTENT_PATTERN = re.compile(
-    r'data-framer-name="Content">(?P<content>.*?)<div class="ssr-variant',
-    re.IGNORECASE | re.DOTALL,
-)
-
-PARAGRAPH_PATTERN = re.compile(r"<p[^>]*>(?P<text>.*?)</p>", re.DOTALL)
+from .base import BaseScraper, PROJECT_ROOT
+from .mixins import CrawlResultItemMixin
 
 
-class BellatrixScraper(BaseScraper, DetailEnrichmentMixin):
-    encoding_fixes = {
-        "\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u201e\u00a2": "\u2019",
-        "\u00c3\u00a2\u00e2\u201a\u00ac\u00cb\u0153": "\u2018",
-        "\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u201c": "\u201c",
-        "\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u20ac\u0153": "\u2013",
-        "\u00e2\u20ac\u2122": "\u2019",
-        "\u00e2\u20ac\u02dc": "\u2018",
-        "\u00e2\u20ac\u0153": "\u201c",
-        "\u00e2\u20ac\u201c": "\u2013",
-        "\u00e2\u20ac\u201d": "\u2014",
-        "\u00e2\u201e\u00a2": "\u2122",
-        "\u00e2\u201a\u00b9": "\u20b9",
-    }
+def _normalise(url: str) -> str:
+    return urldefrag(url.rstrip("/"))[0]
 
-    def _normalize_published_date(self, value: str) -> str:
-        cleaned = self.strip_html(value)
-        try:
-            return datetime.strptime(cleaned, "%B %d, %Y").date().isoformat()
-        except ValueError:
-            return cleaned
 
-    def _looks_like_display_date(self, value: str) -> bool:
-        cleaned = self.strip_html(value)
-        for fmt in ("%d %B %Y", "%B %d, %Y"):
-            try:
-                datetime.strptime(cleaned, fmt)
-                return True
-            except ValueError:
-                continue
-        return False
-
-    def _is_internal_url(self, url: str) -> bool:
-        parsed = urlparse(url)
-        return parsed.netloc in {"bellatrix.aero", "www.bellatrix.aero"} and parsed.path.startswith("/updates/")
-
-    def should_enrich(self, item: dict[str, Any]) -> bool:
-        return self._is_internal_url(item["url"])
+class BellatrixScraper(CrawlResultItemMixin, BaseScraper):
+    result_item_id_prefix = "news"
+    result_item_section = "updates"
+    result_item_type = "News"
+    result_title_metadata_keys = ("og:title", "title")
+    result_description_metadata_keys = ("og:description", "description")
+    result_description_skip_prefixes = ("#", "!")
+    result_description_min_length = 30
 
     def extract_items(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
+        # Not used; collect_items is overridden to use deep crawl.
+        return []
+
+    async def collect_items(
+        self, source_link: str, timeout_ms: int, logger: logging.Logger
+    ) -> list[dict[str, Any]]:
+        logger.info("Starting deep crawl for %s", source_link)
+
+        filter_chain = FilterChain([
+            URLPatternFilter(patterns=["*/updates/*"]),
+            ContentTypeFilter(allowed_types=["text/html"]),
+        ])
+
+        config = CrawlerRunConfig(
+            deep_crawl_strategy=BFSDeepCrawlStrategy(
+                max_depth=1,
+                include_external=False,
+                filter_chain=filter_chain,
+            ),
+            scraping_strategy=LXMLWebScrapingStrategy(),
+            markdown_generator=DefaultMarkdownGenerator(),
+            cache_mode=CacheMode.BYPASS,
+            page_timeout=timeout_ms,
+            # Bellatrix is a Framer site; give rendered update links time to appear.
+            delay_before_return_html=2.0,
+            wait_until="networkidle",
+            verbose=False,
+        )
+
+        listing_url = _normalise(source_link)
         items: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
-        for match in POST_PATTERN.finditer(raw_html):
-            absolute_url = urljoin(source_link, html.unescape(match.group("href")).strip())
-            item_id = f"news:{absolute_url}"
-            if item_id in seen_ids:
-                continue
-            seen_ids.add(item_id)
-            parsed = urlparse(absolute_url)
-            is_external = parsed.netloc not in {"bellatrix.aero", "www.bellatrix.aero"}
-            items.append({
-                "id": item_id,
-                "section": "updates",
-                "type": "News",
-                "title": self.strip_html(match.group("title")),
-                "description": "",
-                "published_date": self._normalize_published_date(match.group("published_date")),
-                "url": absolute_url,
-                "image": html.unescape(match.group("image")).strip(),
-                "read_time": "",
-                "button_text": "Read More",
-                "external": is_external,
-                "source_page": source_link,
-            })
-        return items
 
-    def extract_detail_fields(self, raw_html: str) -> dict[str, Any]:
-        content_match = DETAIL_CONTENT_PATTERN.search(raw_html)
-        if not content_match:
-            return {"description": ""}
-        paragraphs: list[str] = []
-        for paragraph_match in PARAGRAPH_PATTERN.finditer(content_match.group("content")):
-            text = self.strip_html(paragraph_match.group("text"))
-            if not text:
-                continue
-            if self._looks_like_display_date(text):
-                continue
-            if text in paragraphs:
-                continue
-            if text.startswith("For media inquiries") or text.startswith("Email:") or text.startswith("Copyright @"):
-                break
-            paragraphs.append(text)
-        return {"description": " ".join(paragraphs[:3]).strip()}
+        async with AsyncWebCrawler(
+            config=self._browser_config(), base_directory=str(PROJECT_ROOT)
+        ) as crawler:
+            results = await crawler.arun(source_link, config=config)
+            logger.info("Deep crawl returned %s result(s) total.", len(results))
+            for result in results:
+                depth = result.metadata.get("depth", 0)
+                normalised = _normalise(result.url)
+                logger.debug("Result depth=%s url=%s success=%s", depth, result.url, result.success)
+                if normalised == listing_url:
+                    logger.info("Skipping listing page URL: %s", result.url)
+                    continue
+                if not result.success:
+                    logger.warning("Failed to crawl %s: %s", result.url, result.error_message)
+                    continue
+
+                item = self.result_to_item(result, source_link)
+                if not item or item["id"] in seen_ids:
+                    continue
+                seen_ids.add(item["id"])
+                items.append(item)
+
+        logger.info("Collected %s item(s) from deep crawl.", len(items))
+        return self._sort_items(items)
 
     def _sort_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
             items,
-            key=lambda i: (i.get("published_date") or "", i.get("title") or ""),
+            key=lambda item: (item.get("published_date") or "", item.get("title") or ""),
             reverse=True,
         )
 
