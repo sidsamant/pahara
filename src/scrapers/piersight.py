@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import Any
 from urllib.parse import urldefrag
 
@@ -16,15 +15,24 @@ from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
 from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 
 from .base import BaseScraper, PROJECT_ROOT
-
-_DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+from .mixins import CrawlResultItemMixin
 
 
 def _normalise(url: str) -> str:
     return urldefrag(url.rstrip("/"))[0]
 
 
-class PierSightScraper(BaseScraper):
+class PierSightScraper(CrawlResultItemMixin, BaseScraper):
+    result_item_id_prefix = "news"
+    result_item_section = "blog"
+    result_item_type = "News"
+    result_title_metadata_keys = ("og:title", "title")
+    result_description_metadata_keys = ("og:description", "description")
+    result_description_skip_prefixes = ("#", "!")
+    result_description_min_length = 30
+    result_date_metadata_keys = ("article:published_time",)
+    result_skip_url_substrings = ("/blog/tags/",)
+    result_skip_url_suffixes = ("/blog/all",)
 
     def extract_items(self, raw_html: str, source_link: str) -> list[dict[str, Any]]:
         return []
@@ -69,64 +77,12 @@ class PierSightScraper(BaseScraper):
                 if not result.success:
                     logger.warning("Failed to crawl %s: %s", result.url, result.error_message)
                     continue
-                item = self._result_to_item(result, source_link)
+                item = self.result_to_item(result, source_link)
                 if item:
                     items.append(item)
 
         logger.info("Collected %s item(s) from deep crawl.", len(items))
         return items
-
-    def _result_to_item(self, result: Any, source_link: str) -> dict[str, Any] | None:
-        url = result.url
-
-        # Skip tag index pages and the /all listing view
-        if "/blog/tags/" in url or url.rstrip("/").endswith("/blog/all"):
-            return None
-
-        title = (
-            result.metadata.get("og:title")
-            or result.metadata.get("title")
-            or ""
-        ).strip()
-        if not title or not url:
-            return None
-
-        description = result.metadata.get("og:description") or result.metadata.get("description") or ""
-        if not description and result.markdown:
-            for line in result.markdown.split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#") and not line.startswith("!") and len(line) > 30:
-                    description = line
-                    break
-
-        image = result.metadata.get("og:image") or ""
-        if not image:
-            images = (result.media or {}).get("images", [])
-            if images:
-                image = images[0].get("src", "")
-
-        date_str = result.metadata.get("article:published_time") or ""
-        if date_str:
-            published_date = date_str[:10]
-        else:
-            m = _DATE_PATTERN.search(result.markdown or "")
-            published_date = m.group(1) if m else ""
-
-        return {
-            "id": f"news:{url}",
-            "section": "blog",
-            "type": "News",
-            "title": title,
-            "description": description,
-            "published_date": published_date,
-            "published_date_text": published_date,
-            "url": url,
-            "image": image,
-            "read_time": "",
-            "button_text": "Read More",
-            "external": False,
-            "source_page": source_link,
-        }
 
 
 scrape_source = PierSightScraper().scrape_source
