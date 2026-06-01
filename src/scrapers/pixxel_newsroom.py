@@ -9,6 +9,7 @@ from crawl4ai import (
     CrawlerRunConfig,
     DefaultMarkdownGenerator,
     FilterChain,
+    PruningContentFilter,
     URLPatternFilter,
 )
 from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
@@ -42,6 +43,20 @@ class PixxelScraper(CrawlResultItemMixin, BaseScraper):
             ContentTypeFilter(allowed_types=["text/html"]),
         ])
 
+        prune_filter = PruningContentFilter(
+            threshold=0.5,
+            threshold_type="fixed",  # or "dynamic"
+            min_word_threshold=50
+        )
+
+        md_generator = DefaultMarkdownGenerator(
+            # content_filter=prune_filter,
+            # content_source="cleaned_html",
+            options={"ignore_links": True,"ignore_images": True}
+        )
+
+        # Target article body and sidebar, but not other content
+        target_elements=["main.main-wrapper"]
         config = CrawlerRunConfig(
             deep_crawl_strategy=BFSDeepCrawlStrategy(
                 max_depth=1,
@@ -49,7 +64,8 @@ class PixxelScraper(CrawlResultItemMixin, BaseScraper):
                 filter_chain=filter_chain,
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
-            markdown_generator=DefaultMarkdownGenerator(),
+            target_elements=target_elements,
+            markdown_generator=md_generator,
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
             # Give Webflow enough time to render cards before link discovery.

@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from crawl4ai import AsyncWebCrawler
+from crawl4ai import AsyncWebCrawler, MarkdownGenerationResult
 
 _DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 _DATE_LONG_PATTERN = re.compile(
@@ -153,6 +153,9 @@ class CrawlResultItemMixin:
         without_newlines = _NEWLINE_PATTERN.sub(" ", result.cleaned_html or "")
         return _CONSECUTIVE_SPACE_PATTERN.sub(" ", without_newlines).strip()
 
+    def _result_markdown(self, result: Any) -> MarkdownGenerationResult:
+        return result.markdown
+
     def result_to_item(self, result: Any, source_link: str) -> dict[str, Any] | None:
         logger = self._result_item_logger()
         scraper_name = self.__class__.__name__
@@ -175,6 +178,8 @@ class CrawlResultItemMixin:
         description = self._result_description(result, url, title, logger)
         image = self._result_image(result, url, logger)
         published_date = self._result_published_date(result, url, logger)
+        markdown = self._result_markdown(result)
+        cleaned_html = self._result_cleaned_html(result)
 
         item = {
             "id": f"{self.result_item_id_prefix}:{url}",
@@ -190,8 +195,10 @@ class CrawlResultItemMixin:
             "button_text": self.result_item_button_text,
             "external": False,
             "source_page": source_link,
-            "cleaned_html": self._result_cleaned_html(result),
-            "fit_html": result.fit_html,
+            "markdown": markdown,
+            "markdown_length": len(markdown),
+            "cleaned_html": cleaned_html,
+            "cleaned_html_length": len(cleaned_html),
             "extracted_content": result.extracted_content,
         }
         logger.debug("%s converted Crawl4AI result to item id=%s title=%s", scraper_name, item["id"], title)
