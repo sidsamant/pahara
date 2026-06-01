@@ -64,14 +64,14 @@ class PixxelScraper(CrawlResultItemMixin, BaseScraper):
                 filter_chain=filter_chain,
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
-            target_elements=target_elements,
-            markdown_generator=md_generator,
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
             # Give Webflow enough time to render cards before link discovery.
             delay_before_return_html=2.0,
             wait_until="networkidle",
             verbose=False,
+            target_elements=target_elements,
+            markdown_generator=md_generator
         )
 
         listing_url = _normalise(source_link)
