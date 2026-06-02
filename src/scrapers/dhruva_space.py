@@ -37,6 +37,15 @@ class DhruvaSpaceScraper(CrawlResultItemMixin, BaseScraper):
             ContentTypeFilter(allowed_types=["text/html"]),
         ])
 
+
+        md_generator = DefaultMarkdownGenerator(
+            # content_filter=prune_filter,
+            # content_source="cleaned_html",
+            options={"ignore_links": True,"ignore_images": True}
+        )
+
+        # Target article body and sidebar, but not other content
+        target_elements=["div.news_template-content"]
         config = CrawlerRunConfig(
             deep_crawl_strategy=BFSDeepCrawlStrategy(
                 max_depth=1,
@@ -44,13 +53,14 @@ class DhruvaSpaceScraper(CrawlResultItemMixin, BaseScraper):
                 filter_chain=filter_chain,
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
-            markdown_generator=DefaultMarkdownGenerator(),
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
             # domcontentloaded: networkidle causes timeouts on this Webflow site
             delay_before_return_html=2.0,
             wait_until="domcontentloaded",
             verbose=False,
+            target_elements=target_elements,
+            markdown_generator=md_generator
         )
 
         listing_url = _normalise(source_link)
