@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from crawl4ai import AsyncWebCrawler, MarkdownGenerationResult
+from crawl4ai import AsyncWebCrawler
 
 _DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 _DATE_LONG_PATTERN = re.compile(
@@ -153,8 +153,19 @@ class CrawlResultItemMixin:
         without_newlines = _NEWLINE_PATTERN.sub(" ", result.cleaned_html or "")
         return _CONSECUTIVE_SPACE_PATTERN.sub(" ", without_newlines).strip()
 
-    def _result_markdown(self, result: Any) -> MarkdownGenerationResult:
-        return result.markdown
+    def _result_markdown(self, result: Any) -> str:
+        markdown = result.markdown
+        if markdown is None:
+            return ""
+        if isinstance(markdown, str):
+            return markdown
+        raw_markdown = getattr(markdown, "raw_markdown", None)
+        if isinstance(raw_markdown, str):
+            return raw_markdown
+        fit_markdown = getattr(markdown, "fit_markdown", None)
+        if isinstance(fit_markdown, str):
+            return fit_markdown
+        return str(markdown)
 
     def result_to_item(self, result: Any, source_link: str) -> dict[str, Any] | None:
         logger = self._result_item_logger()

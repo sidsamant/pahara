@@ -1,4 +1,4 @@
-﻿{
+{
   "version": "0.2.0",
   "configurations": [
     {
@@ -34,7 +34,10 @@
       "envFile": "${workspaceFolder}/.env",
       "args": ["--all-items", "--timeout-ms", "${input:timeoutMs}"],
       "justMyCode": false,
-      "subProcess": true
+      "subProcess": true,
+      "env": {
+        "DEBUGPY_PROCESS_SPAWN_TIMEOUT": "60" // 60 seconds
+      }
     },
     {
       "name": "Crawl4AI: List Sources",
@@ -71,6 +74,20 @@
       "args": ["migrate"],
       "justMyCode": false,
       "subProcess": true
+    },
+    {
+        "name": "Debug Pytest File",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "pytest",
+        "args": [
+            "${file}"
+        ],
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        },
+        "console": "integratedTerminal",
+        "justMyCode": true
     }
   ],
   "inputs": [

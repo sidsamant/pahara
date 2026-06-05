@@ -12,3 +12,9 @@ psycopg2-binary>=2.9
 
 # Loads DATABASE_URL (and other env vars) from a local .env file at startup.
 python-dotenv>=1.0
+
+docling>=2.0.0
+langdetect>=1.0.3
+
+pytest==8.3.4
+pytest-xdist==3.6.1    # Runs tests in parallel to save time

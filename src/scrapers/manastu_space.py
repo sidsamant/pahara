@@ -45,6 +45,15 @@ class ManastuSpaceScraper(CrawlResultItemMixin, BaseScraper):
             ContentTypeFilter(allowed_types=["text/html"]),
         ])
 
+
+        md_generator = DefaultMarkdownGenerator(
+            # content_filter=prune_filter,
+            # content_source="cleaned_html",
+            options={"ignore_links": True,"ignore_images": True}
+        )
+
+        # Target specific content
+        target_elements=["div.news_template-content"]
         config = CrawlerRunConfig(
             deep_crawl_strategy=BFSDeepCrawlStrategy(
                 max_depth=1,
@@ -52,13 +61,14 @@ class ManastuSpaceScraper(CrawlResultItemMixin, BaseScraper):
                 filter_chain=filter_chain,
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
-            markdown_generator=DefaultMarkdownGenerator(),
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
             # networkidle gives JS time to render article cards and content
             delay_before_return_html=2.0,
             wait_until="networkidle",
             verbose=False,
+            target_elements=target_elements,
+            markdown_generator=md_generator
         )
 
         listing_url = _normalise(source_link)
