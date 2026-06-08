@@ -39,6 +39,15 @@ class SatsureNewsroomScraper(CrawlResultItemMixin, BaseScraper):
             ContentTypeFilter(allowed_types=["text/html"]),
         ])
 
+
+        md_generator = DefaultMarkdownGenerator(
+            # content_filter=prune_filter,
+            # content_source="cleaned_html",
+            options={"ignore_links": True,"ignore_images": True}
+        )
+
+        # Target article body and sidebar, but not other content
+        target_elements=["div.category-press-release"]
         config = CrawlerRunConfig(
             deep_crawl_strategy=BFSDeepCrawlStrategy(
                 max_depth=1,
@@ -46,13 +55,14 @@ class SatsureNewsroomScraper(CrawlResultItemMixin, BaseScraper):
                 filter_chain=filter_chain,
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
-            markdown_generator=DefaultMarkdownGenerator(),
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
             # Give JS time to render article cards before link discovery
             delay_before_return_html=2.0,
             wait_until="networkidle",
             verbose=False,
+            target_elements=target_elements,
+            markdown_generator=md_generator
         )
 
         listing_url = _normalise(source_link)
