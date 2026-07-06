@@ -5,7 +5,7 @@
     "name": "run_sources",
     "withoutRowId": false,
     "strict": false,
-    "ddl": "CREATE TABLE run_sources (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,\n                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,\n                started_at_utc TEXT NOT NULL,\n                finished_at_utc TEXT,\n                status TEXT NOT NULL,\n                log_path TEXT NOT NULL,\n                output_path TEXT,\n                total_current_count INTEGER NOT NULL DEFAULT 0,\n                returned_count INTEGER NOT NULL DEFAULT 0,\n                error_text TEXT,\n                UNIQUE (run_id, source_id)\n            );",
+    "ddl": "CREATE TABLE run_sources (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,\n                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,\n                started_at_utc TEXT NOT NULL,\n                finished_at_utc TEXT,\n                status TEXT NOT NULL,\n                log_path TEXT NOT NULL,\n                output_path TEXT,\n                total_current_count INTEGER NOT NULL DEFAULT 0,\n                new_items_count INTEGER NOT NULL DEFAULT 0,\n                error_text TEXT,\n                UNIQUE (run_id, source_id)\n            );",
     "columns": [
         {
             "name": "id",
@@ -98,7 +98,7 @@
             ]
         },
         {
-            "name": "returned_count",
+            "name": "new_items_count",
             "type": "INTEGER",
             "constraints": [
                 {

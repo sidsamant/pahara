@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS run_sources (
     log_path            TEXT       NOT NULL,
     output_path         TEXT,
     total_current_count INTEGER    NOT NULL DEFAULT 0,
-    returned_count      INTEGER    NOT NULL DEFAULT 0,
+    new_items_count     INTEGER    NOT NULL DEFAULT 0,
     error_text          TEXT,
     UNIQUE (run_id, source_id)
 );

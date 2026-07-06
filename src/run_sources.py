@@ -47,6 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=90000,
         help="Per-page Crawl4AI timeout in milliseconds.",
     )
+    parser.add_argument(
+        "--task-id",
+        type=str,
+        default=None,
+        help="Optional Django task result ID associating the run.",
+    )
     return parser
 
 
@@ -109,7 +115,7 @@ def main() -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     run_logger = configure_logger(log_dir / "run.log", f"run.{run_timestamp}")
 
-    run_id = create_run(log_dir=log_dir, total_sources=len(enabled_sources))
+    run_id = create_run(log_dir=log_dir, total_sources=len(enabled_sources), task_id=args.task_id)
     run_logger.info("Run %s started with %s enabled source(s).", run_id, len(enabled_sources))
 
     results_by_source: dict[str, dict] = {}
@@ -148,7 +154,7 @@ def main() -> int:
                 duplicate_count = len(all_current) - len(new_items)
                 if duplicate_count:
                     source_logger.info("Skipped %s duplicate item(s) already in database.", duplicate_count)
-                payload["returned_count"] = len(new_items)
+                payload["new_items_count"] = len(new_items)
                 payload["items"] = new_items
                 payload["source"] = {
                     "id": source.id,
@@ -168,7 +174,7 @@ def main() -> int:
                     status="completed",
                     output_path=output_path,
                     total_current_count=payload["total_current_count"],
-                    returned_count=payload["returned_count"],
+                    new_items_count=payload["new_items_count"],
                     error_text=None,
                 )
                 persistence_result = upsert_scraped_items(
@@ -178,9 +184,9 @@ def main() -> int:
                     items=new_items,
                 )
                 source_logger.info(
-                    "Completed source '%s' with %s returned item(s) out of %s current item(s); inserted=%s updated=%s in SQLite.",
+                    "Completed source '%s' with %s new/deduplicated item(s) out of %s current item(s); inserted=%s updated=%s in SQLite.",
                     source.name,
-                    payload["returned_count"],
+                    payload["new_items_count"],
                     payload["total_current_count"],
                     persistence_result["inserted"],
                     persistence_result["updated"],
@@ -200,7 +206,7 @@ def main() -> int:
                     status="failed",
                     output_path=None,
                     total_current_count=0,
-                    returned_count=0,
+                    new_items_count=0,
                     error_text=str(exc),
                 )
             finally:

@@ -280,16 +280,16 @@ def set_source_enabled(source_id: int, enabled: bool) -> None:
 # Run tracking
 # ---------------------------------------------------------------------------
 
-def create_run(log_dir: Path, total_sources: int) -> int:
+def create_run(log_dir: Path, total_sources: int, task_id: str | None = None) -> int:
     with get_connection() as connection:
         # RETURNING id avoids a separate SELECT to get the auto-generated PK.
         cursor = connection.execute(
             """
-            INSERT INTO runs (started_at_utc, status, log_dir, total_sources)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO runs (started_at_utc, status, log_dir, total_sources, task_id)
+            VALUES (?, ?, ?, ?, ?)
             RETURNING id
             """,
-            (utc_now_iso(), "running", str(log_dir), total_sources),
+            (utc_now_iso(), "running", str(log_dir), total_sources, task_id),
         )
         return int(cursor.fetchone()["id"])
 
@@ -338,7 +338,7 @@ def finalize_run_source(
     status: str,
     output_path: Path | None,
     total_current_count: int,
-    returned_count: int,
+    new_items_count: int,
     error_text: str | None,
 ) -> None:
     with get_connection() as connection:
@@ -346,7 +346,7 @@ def finalize_run_source(
             """
             UPDATE run_sources
             SET finished_at_utc = ?, status = ?, output_path = ?,
-                total_current_count = ?, returned_count = ?, error_text = ?
+                total_current_count = ?, new_items_count = ?, error_text = ?
             WHERE id = ?
             """,
             (
@@ -354,7 +354,7 @@ def finalize_run_source(
                 status,
                 str(output_path) if output_path else None,
                 total_current_count,
-                returned_count,
+                new_items_count,
                 error_text,
                 run_source_id,
             ),
