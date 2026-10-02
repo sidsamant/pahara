@@ -8,3 +8,5 @@ __pycache__/
 a.txt
 sources_delete
 .env
+*.pdf
+*.py.bak*
